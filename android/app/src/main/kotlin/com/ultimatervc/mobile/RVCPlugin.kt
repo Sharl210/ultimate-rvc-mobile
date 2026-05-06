@@ -7,6 +7,8 @@ import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
+import android.media.audiofx.AutomaticGainControl
+import android.media.audiofx.NoiseSuppressor
 import android.net.Uri
 import android.os.Environment
 import android.os.Handler
@@ -28,6 +30,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import java.io.File
 import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -48,6 +51,7 @@ class RVCPlugin : FlutterPlugin, MethodCallHandler, StreamHandler {
     private var realtimeEventSink: EventSink? = null
     private var decibelSession: DecibelMeterSession? = null
     private var recorder: MediaRecorder? = null
+    private var pcmRecorderSession: PcmRecorderSession? = null
     private var realtimeSession: RealtimeRvcSession? = null
     private var activeInferenceJob: Job? = null
     private var activeRootPerformanceSession: RootPerformanceSession? = null
@@ -123,6 +127,7 @@ class RVCPlugin : FlutterPlugin, MethodCallHandler, StreamHandler {
             "stopRealtimeInference" -> stopRealtimeInference(result)
             "startRecording" -> startRecording(result)
             "stopRecording" -> stopRecording(result)
+            "getAudioDurationMs" -> getAudioDurationMs(call, result)
             "showToast" -> showToast(call, result)
             "saveGeneratedAudio" -> saveGeneratedAudio(call, result)
             "convertIndex" -> convertIndex(call, result)
@@ -518,26 +523,19 @@ class RVCPlugin : FlutterPlugin, MethodCallHandler, StreamHandler {
 
     private fun startRecording(result: Result) {
         try {
-            require(recorder == null) { "正在录音" }
+            require(recorder == null && pcmRecorderSession == null) { "正在录音" }
             val recordingDir = File(appContext.filesDir, "recordings")
             recordingDir.mkdirs()
-            val file = File(recordingDir, "recording_${readableTimestamp()}.m4a")
-            recorder = MediaRecorder().apply {
-                setAudioSource(MediaRecorder.AudioSource.MIC)
-                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-                setAudioSamplingRate(44100)
-                setAudioChannels(1)
-                setOutputFile(file.absolutePath)
-                prepare()
-                start()
-            }
+            val file = File(recordingDir, "recording_${readableTimestamp()}.wav")
+            pcmRecorderSession = PcmRecorderSession(file, DEFAULT_OUTPUT_SAMPLE_RATE).also { it.start() }
             recordingFile = file
             recordingStartedAtMs = SystemClock.elapsedRealtime()
             result.success(true)
         } catch (e: Exception) {
             recorder?.release()
             recorder = null
+            pcmRecorderSession?.stop(discard = true)
+            pcmRecorderSession = null
             recordingFile = null
             recordingStartedAtMs = 0L
             result.error("RECORD_FAILED", e.message, null)
@@ -546,22 +544,31 @@ class RVCPlugin : FlutterPlugin, MethodCallHandler, StreamHandler {
 
     private fun stopRecording(result: Result) {
         try {
-            val activeRecorder = recorder ?: error("没有正在进行的录音")
+            val activeRecorder = recorder
+            val activePcmRecorder = pcmRecorderSession
+            require(activeRecorder != null || activePcmRecorder != null) { "没有正在进行的录音" }
             val file = recordingFile ?: error("录音文件不存在")
             val elapsedMs = SystemClock.elapsedRealtime() - recordingStartedAtMs
             if (elapsedMs < MIN_RECORDING_DURATION_MS) {
-                runCatching { activeRecorder.stop() }
-                activeRecorder.release()
+                runCatching { activeRecorder?.stop() }
+                activeRecorder?.release()
                 recorder = null
+                activePcmRecorder?.stop(discard = true)
+                pcmRecorderSession = null
                 recordingFile = null
                 recordingStartedAtMs = 0L
                 file.delete()
                 result.error("RECORD_FAILED", "录音至少需要 1 秒", null)
                 return
             }
-            activeRecorder.stop()
-            activeRecorder.release()
+            if (activeRecorder != null) {
+                activeRecorder.stop()
+                activeRecorder.release()
+            } else {
+                activePcmRecorder?.stop(discard = false)
+            }
             recorder = null
+            pcmRecorderSession = null
             recordingFile = null
             recordingStartedAtMs = 0L
             require(file.length() > 0L) { "录音文件为空" }
@@ -569,9 +576,178 @@ class RVCPlugin : FlutterPlugin, MethodCallHandler, StreamHandler {
         } catch (e: Exception) {
             recorder?.release()
             recorder = null
+            pcmRecorderSession?.stop(discard = true)
+            pcmRecorderSession = null
             recordingFile = null
             recordingStartedAtMs = 0L
             result.error("RECORD_FAILED", e.message, null)
+        }
+    }
+
+    private fun getAudioDurationMs(call: MethodCall, result: Result) {
+        val path = call.argument<String>("path")
+        if (path.isNullOrBlank()) {
+            result.error("INVALID_ARGUMENTS", "Missing path", null)
+            return
+        }
+        try {
+            val durationMs = readAudioDurationMs(File(path))
+            result.success(durationMs)
+        } catch (error: Throwable) {
+            result.error("AUDIO_DURATION_FAILED", error.message, null)
+        }
+    }
+
+    private fun readAudioDurationMs(file: File): Long {
+        require(file.isFile) { "音频文件不存在" }
+        runCatching {
+            val retriever = android.media.MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(file.absolutePath)
+                val durationMs = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+                if (durationMs != null && durationMs >= 0L) return durationMs
+            } finally {
+                retriever.release()
+            }
+        }
+
+        val extractor = android.media.MediaExtractor()
+        return try {
+            extractor.setDataSource(file.absolutePath)
+            val trackIndex = (0 until extractor.trackCount).firstOrNull { index ->
+                extractor.getTrackFormat(index).getString(android.media.MediaFormat.KEY_MIME)?.startsWith("audio/") == true
+            } ?: 0
+            val format = extractor.getTrackFormat(trackIndex)
+            if (format.containsKey(android.media.MediaFormat.KEY_DURATION)) {
+                (format.getLong(android.media.MediaFormat.KEY_DURATION) / 1_000L).coerceAtLeast(0L)
+            } else {
+                0L
+            }
+        } finally {
+            extractor.release()
+        }
+    }
+
+    private class PcmRecorderSession(
+        private val file: File,
+        private val sampleRate: Int,
+    ) {
+        private val bufferSize = maxOf(
+            AudioRecord.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT),
+            PCM_RECORDING_MIN_BUFFER_FRAMES * BYTES_PER_PCM_16,
+        )
+        private val audioRecord = AudioRecord(
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            sampleRate,
+            AudioFormat.CHANNEL_IN_MONO,
+            AudioFormat.ENCODING_PCM_16BIT,
+            bufferSize,
+        )
+        private val audioBuffer = ShortArray(bufferSize / BYTES_PER_PCM_16)
+        private val running = AtomicBoolean(false)
+        private var worker: Job? = null
+        private var suppressor: NoiseSuppressor? = null
+        private var gainControl: AutomaticGainControl? = null
+
+        fun start() {
+            require(audioRecord.state == AudioRecord.STATE_INITIALIZED) { "无法初始化录音设备" }
+            file.parentFile?.mkdirs()
+            running.set(true)
+            enableCaptureEnhancements()
+            audioRecord.startRecording()
+            worker = CoroutineScope(Dispatchers.IO).launch {
+                writeWavStream(file, sampleRate) { output ->
+                    while (running.get()) {
+                        val read = audioRecord.read(audioBuffer, 0, audioBuffer.size)
+                        if (read > 0) {
+                            val cleaned = preprocessRecordedAudio(audioBuffer, read)
+                            output.write(encodePcm16(cleaned, read))
+                        }
+                    }
+                }
+            }
+        }
+
+        fun stop(discard: Boolean) {
+            running.set(false)
+            worker?.cancel()
+            worker = null
+            runCatching { audioRecord.stop() }
+            releaseCaptureEnhancements()
+            audioRecord.release()
+            if (discard) {
+                file.delete()
+            }
+        }
+
+        private fun enableCaptureEnhancements() {
+            if (NoiseSuppressor.isAvailable()) {
+                suppressor = NoiseSuppressor.create(audioRecord.audioSessionId)?.apply { enabled = true }
+            }
+            if (AutomaticGainControl.isAvailable()) {
+                gainControl = AutomaticGainControl.create(audioRecord.audioSessionId)?.apply { enabled = true }
+            }
+        }
+
+        private fun releaseCaptureEnhancements() {
+            suppressor?.release()
+            suppressor = null
+            gainControl?.release()
+            gainControl = null
+        }
+
+        private fun preprocessRecordedAudio(source: ShortArray, sampleCount: Int): ShortArray {
+            var peak = 0
+            for (index in 0 until sampleCount) {
+                peak = maxOf(peak, kotlin.math.abs(source[index].toInt()))
+            }
+            if (peak == 0) return source.copyOf(sampleCount)
+            val targetPeak = (Short.MAX_VALUE * RECORDING_TARGET_PEAK_RATIO).roundToInt().coerceAtLeast(1)
+            val gain = (targetPeak.toDouble() / peak.toDouble()).coerceAtMost(RECORDING_MAX_GAIN)
+            val processed = ShortArray(sampleCount)
+            for (index in 0 until sampleCount) {
+                val boosted = (source[index] * gain).roundToInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
+                processed[index] = boosted.toShort()
+            }
+            return processed
+        }
+
+        private fun encodePcm16(samples: ShortArray, sampleCount: Int): ByteArray {
+            val pcm = ByteBuffer.allocate(sampleCount * BYTES_PER_PCM_16).order(ByteOrder.LITTLE_ENDIAN)
+            for (index in 0 until sampleCount) {
+                pcm.putShort(samples[index])
+            }
+            return pcm.array()
+        }
+
+        private fun writeWavStream(file: File, sampleRate: Int, block: (FileOutputStream) -> Unit) {
+            FileOutputStream(file).use { output ->
+                output.write(ByteArray(WAV_HEADER_BYTES))
+                block(output)
+            }
+            updateWavHeader(file, sampleRate)
+        }
+
+        private fun updateWavHeader(file: File, sampleRate: Int) {
+            val dataSize = (file.length() - WAV_HEADER_BYTES).coerceAtLeast(0).toInt()
+            val header = ByteBuffer.allocate(WAV_HEADER_BYTES).order(ByteOrder.LITTLE_ENDIAN)
+            header.put("RIFF".toByteArray(Charsets.US_ASCII))
+            header.putInt(WAV_HEADER_BYTES - 8 + dataSize)
+            header.put("WAVE".toByteArray(Charsets.US_ASCII))
+            header.put("fmt ".toByteArray(Charsets.US_ASCII))
+            header.putInt(16)
+            header.putShort(1)
+            header.putShort(1)
+            header.putInt(sampleRate)
+            header.putInt(sampleRate * BYTES_PER_PCM_16)
+            header.putShort(BYTES_PER_PCM_16.toShort())
+            header.putShort(16)
+            header.put("data".toByteArray(Charsets.US_ASCII))
+            header.putInt(dataSize)
+            java.io.RandomAccessFile(file, "rw").use { raf ->
+                raf.seek(0)
+                raf.write(header.array())
+            }
         }
     }
 
@@ -1263,6 +1439,9 @@ class RVCPlugin : FlutterPlugin, MethodCallHandler, StreamHandler {
         const val DEFAULT_PARALLEL_CHUNK_COUNT = 4
         const val FEATURE_INDEX_MAGIC = "URVCIDX1"
         const val MIN_RECORDING_DURATION_MS = 1_000L
+        const val PCM_RECORDING_MIN_BUFFER_FRAMES = 4_096
+        const val RECORDING_TARGET_PEAK_RATIO = 0.72
+        const val RECORDING_MAX_GAIN = 3.0
         const val INFERENCE_WAKE_LOCK_TIMEOUT_MS = 30 * 60 * 1000L
         const val REALTIME_SAMPLE_RATE = 48_000
         const val MIN_REALTIME_SAMPLE_RATE = 40_000

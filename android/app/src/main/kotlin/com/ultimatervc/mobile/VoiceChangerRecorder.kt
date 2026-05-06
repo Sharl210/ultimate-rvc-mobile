@@ -6,6 +6,8 @@ import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
+import android.media.audiofx.AutomaticGainControl
+import android.media.audiofx.NoiseSuppressor
 import android.os.Environment
 import android.provider.MediaStore
 import android.content.ContentValues
@@ -71,6 +73,8 @@ class VoiceChangerRecorder(
     private var processedSampleRate = 0
     private var currentProcessingProgress = 0.0
     private val pauseRequested = AtomicBoolean(false)
+    private var suppressor: NoiseSuppressor? = null
+    private var gainControl: AutomaticGainControl? = null
 
     fun canStartProcessing(): Boolean {
         return NativeModeGuard.tryEnter(NativeActiveMode.VOICE_CHANGER)?.let { token ->
@@ -94,13 +98,14 @@ class VoiceChangerRecorder(
         file.parentFile?.mkdirs()
         writeManifest(state = "RECORDING", overallProgress = 0.0, inputPath = file.absolutePath, outputPath = null)
         audioRecord = AudioRecord(
-            MediaRecorder.AudioSource.MIC,
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
             config.sampleRate,
             AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_16BIT,
             bufferSize,
         ).also { record ->
             val buffer = ShortArray(bufferSize / BYTES_PER_PCM_16)
+            enableCaptureEnhancements(record.audioSessionId)
             record.startRecording()
             thread(name = "VoiceChangerRecorder") {
                 var sampleCount = 0
@@ -108,12 +113,14 @@ class VoiceChangerRecorder(
                     while (recording.get()) {
                         val read = record.read(buffer, 0, buffer.size)
                         if (read > 0) {
-                            writePcm16(output, buffer, read)
+                            val cleaned = preprocessRecordedAudio(buffer, read)
+                            writePcm16(output, cleaned, read)
                             sampleCount += read
                         }
                     }
                 }
                 runCatching { record.stop() }
+                releaseCaptureEnhancements()
                 record.release()
                 audioRecord = null
                 if (discardCurrentRecording) {
@@ -137,6 +144,7 @@ class VoiceChangerRecorder(
         discardCurrentRecording = true
         recording.set(false)
         runCatching { audioRecord?.stop() }
+        releaseCaptureEnhancements()
         audioRecord?.release()
         audioRecord = null
         inputFile?.delete()
@@ -474,6 +482,38 @@ class VoiceChangerRecorder(
         return SimpleDateFormat("yyyy.MM.dd_HH.mm.ss", Locale.US).format(Date())
     }
 
+    private fun enableCaptureEnhancements(audioSessionId: Int) {
+        if (NoiseSuppressor.isAvailable()) {
+            suppressor = NoiseSuppressor.create(audioSessionId)?.apply { enabled = true }
+        }
+        if (AutomaticGainControl.isAvailable()) {
+            gainControl = AutomaticGainControl.create(audioSessionId)?.apply { enabled = true }
+        }
+    }
+
+    private fun releaseCaptureEnhancements() {
+        suppressor?.release()
+        suppressor = null
+        gainControl?.release()
+        gainControl = null
+    }
+
+    private fun preprocessRecordedAudio(source: ShortArray, sampleCount: Int): ShortArray {
+        var peak = 0
+        for (index in 0 until sampleCount) {
+            peak = maxOf(peak, kotlin.math.abs(source[index].toInt()))
+        }
+        if (peak == 0) return source.copyOf(sampleCount)
+        val targetPeak = (Short.MAX_VALUE * RECORDING_TARGET_PEAK_RATIO).toInt().coerceAtLeast(1)
+        val gain = (targetPeak.toDouble() / peak.toDouble()).coerceAtMost(RECORDING_MAX_GAIN)
+        val processed = ShortArray(sampleCount)
+        for (index in 0 until sampleCount) {
+            val boosted = (source[index] * gain).toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
+            processed[index] = boosted.toShort()
+        }
+        return processed
+    }
+
     private fun writeWavStream(file: File, sampleRate: Int, block: (FileOutputStream) -> Unit) {
         FileOutputStream(file).use { output ->
             output.write(ByteArray(WAV_HEADER_BYTES))
@@ -569,5 +609,7 @@ class VoiceChangerRecorder(
         const val MIN_BUFFER_FRAMES = 4_096
         const val BYTES_PER_PCM_16 = 2
         const val WAV_HEADER_BYTES = 44
+        const val RECORDING_TARGET_PEAK_RATIO = 0.72
+        const val RECORDING_MAX_GAIN = 3.0
     }
 }
