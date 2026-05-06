@@ -1,0 +1,40 @@
+name: ultimate_rvc_mobile
+description: Cross-platform RVC voice conversion app
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # UI and utilities
+  cupertino_icons: ^1.0.6
+  
+  # File handling
+  file_picker: ^6.1.1
+  path_provider: ^2.1.1
+  
+  # Audio playback
+  audioplayers: ^5.2.1
+  
+  # Sharing
+  share_plus: ^7.2.1
+
+  # Local settings
+  shared_preferences: ^2.2.2
+  permission_handler: ^11.3.1
+  flutter_svg: ^2.0.10+1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  
+flutter:
+  uses-material-design: true
+  
+  # App icon and splash screen
+  assets:
+    - assets/images/
+    - assets/models/
