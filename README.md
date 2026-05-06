@@ -187,7 +187,7 @@ Download/RVC_Convert/变声器模式/
 
 - **`.onnx` 音色模型**
 
-> 这里不是直接吃 `.pth` 作为运行模型。README 里需要明确这一点，避免误导。
+> 这里不是直接 `.pth` 作为运行模型。
 
 ### 🪄 RVC v2 `.pth` 转 `.onnx`
 
