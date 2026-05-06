@@ -40,7 +40,6 @@
 - 📚 **内置说明页**：参数解释页、`mobile.index` 转换教程页
 - 📈 **分贝仪**：实时 dB 采样与数值锁定
 
-> ℹ️ 仓库内**不直接附带** `hubert.onnx` 和 `rmvpe.onnx` 两个运行时基础模型文件。它们体积很大，会超过 GitHub 普通仓库单文件限制。首次使用时，请自行准备并放入 `assets/models/` 目录。
 
 ---
 
@@ -325,6 +324,8 @@ flutter build apk --release
 2. 把你要改的能力讲清楚
 3. 让 AI 先把工程跑起来并定位关键文件
 
+> ℹ️ 仓库内**不直接附带** `hubert.onnx` 和 `rmvpe.onnx` 两个运行时基础模型文件。它们体积很大，会超过 GitHub 普通仓库单文件限制。首次开发时，请自行准备并放入 `assets/models/` 目录
+
 ### 关于 `index` 转换
 
 如果 `mobile.index` 转换你本地总是失败：
@@ -370,6 +371,6 @@ flutter build apk --release
 
 <div align="center">
 
-**如果你要的是一个已经把 Android 端本地 RVC 关键链路真正做出来、还能继续往前迭代的移动端工程，这个仓库就是为这个目标整理出来的。**
+**如果你要的是一个已经把 Android 端本地 RVC 链路真正做出来、还能继续往前迭代的移动端工程，这个仓库就是为这个目标整理出来的。**
 
 </div>
