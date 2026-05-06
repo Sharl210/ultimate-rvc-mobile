@@ -40,6 +40,7 @@
 - 📚 **内置说明页**：参数解释页、`mobile.index` 转换教程页
 - 📈 **分贝仪**：实时 dB 采样与数值锁定
 
+> ℹ️ `hubert.onnx` 与 `rmvpe.onnx` 两个运行时基础模型文件，会通过 **GitHub Release 附件**提供。仓库本身保留项目代码与目录结构，首次使用时请从对应 Release 下载模型并放入 `assets/models/` 目录。
 
 ---
 
@@ -160,14 +161,15 @@ Download/RVC_Convert/变声器模式/
 - `assets/models/hubert.onnx`
 - `assets/models/rmvpe.onnx`
 
-由于这两个文件体积较大，当前独立仓库默认不直接纳入 Git 历史。仓库发布的重点是：
+由于这两个文件体积较大，GitHub 普通仓库无法直接承载它们的 Git 历史版本，因此当前项目采用 **Release 附件分发模型文件** 的方式。
 
-- 工程结构
-- Flutter / Android / Kotlin 实现
-- 推理流程与界面逻辑
-- APK 发布物
+你可以在对应版本的 Release 页面同时下载：
 
-如需本地自行构建，请先准备上述两个文件并放入 `assets/models/`。
+- `app-release.apk`
+- `hubert.onnx`
+- `rmvpe.onnx`
+
+如需本地自行构建，请先将上述两个文件放入 `assets/models/`。
 
 ### 🏃 独立推理进程
 
@@ -300,6 +302,8 @@ flutter build apk --release
 发布页会提供：
 
 - `app-release.apk`
+- `hubert.onnx`
+- `rmvpe.onnx`
 
 如果仓库 Release 已创建，直接去 Releases 下载即可。
 
