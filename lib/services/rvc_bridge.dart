@@ -24,6 +24,18 @@ class ResumableRvcJobMetadata {
   }
 }
 
+class InferenceProgressSnapshot {
+  final double progress;
+  final String status;
+  final int? runId;
+
+  const InferenceProgressSnapshot({
+    required this.progress,
+    required this.status,
+    this.runId,
+  });
+}
+
 class ImportedFileHandle {
   final String path;
   final int referenceCount;
@@ -51,14 +63,40 @@ class RVCBridge {
   static const EventChannel _decibelChannel = EventChannel('ultimate_rvc_decibel');
 
   Stream<Map<String, dynamic>>? _progressStream;
+  final StreamController<InferenceProgressSnapshot> _progressSnapshots =
+      StreamController<InferenceProgressSnapshot>.broadcast();
+  StreamSubscription<Map<String, dynamic>>? _progressBroadcastSubscription;
 
   /// Initialize RVC bridge
   Future<void> initialize() async {
     try {
+      _ensureProgressBroadcastAttached();
       await _channel.invokeMethod('initialize');
     } on PlatformException catch (e) {
       throw Exception('RVC 初始化失败：${e.message}');
     }
+  }
+
+  void _ensureProgressBroadcastAttached() {
+    _progressStream ??= _progressChannel
+        .receiveBroadcastStream()
+        .map((data) => Map<String, dynamic>.from(data));
+    _progressBroadcastSubscription ??= _progressStream!.listen((progress) {
+      final percentValue = progress['percent'];
+      final statusValue = progress['current_step'];
+      if (percentValue is! num || statusValue is! String) return;
+      final runIdValue = progress['run_id'];
+      _progressSnapshots.add(InferenceProgressSnapshot(
+        progress: percentValue.toDouble(),
+        status: statusValue,
+        runId: runIdValue is num ? runIdValue.toInt() : null,
+      ));
+    });
+  }
+
+  Stream<InferenceProgressSnapshot> progressSnapshots() {
+    _ensureProgressBroadcastAttached();
+    return _progressSnapshots.stream;
   }
 
   /// Check if models are available
@@ -109,19 +147,14 @@ class RVCBridge {
   }) async {
     try {
       final inferenceRunId = DateTime.now().microsecondsSinceEpoch;
-      _progressStream ??= _progressChannel
-          .receiveBroadcastStream()
-          .map((data) => Map<String, dynamic>.from(data));
+      _ensureProgressBroadcastAttached();
 
-      late final StreamSubscription<Map<String, dynamic>> subscription;
-      subscription = _progressStream!.listen((progress) {
-        if (progress['run_id'] != null && progress['run_id'] != inferenceRunId) {
+      late final StreamSubscription<InferenceProgressSnapshot> subscription;
+      subscription = progressSnapshots().listen((progress) {
+        if (progress.runId != null && progress.runId != inferenceRunId) {
           return;
         }
-        final percent = (progress['percent'] as num).toDouble();
-        final status = progress['current_step'] as String;
-        onProgress(percent, status);
-
+        onProgress(progress.progress, progress.status);
       });
 
       try {

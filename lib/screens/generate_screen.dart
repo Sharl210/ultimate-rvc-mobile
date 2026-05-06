@@ -113,9 +113,10 @@ class GenerateScreen extends StatefulWidget {
   _GenerateScreenState createState() => _GenerateScreenState();
 }
 
-class _GenerateScreenState extends State<GenerateScreen> {
+class _GenerateScreenState extends State<GenerateScreen> with AutomaticKeepAliveClientMixin {
   final RVCBridge _rvcBridge = RVCBridge();
   static const String _resumeElapsedPrefix = 'audioInferenceResumeElapsedMs:';
+  static const Duration _progressRecoveryPollInterval = Duration(seconds: 1);
 
   double _pitchChange = 0.0;
   double _indexRate = 0.75;
@@ -130,6 +131,9 @@ class _GenerateScreenState extends State<GenerateScreen> {
   int _activeGenerationRequestId = 0;
   ResumableRvcJobMetadata? _resumableJobMetadata;
   int _resumableLookupRequestId = 0;
+  StreamSubscription<InferenceProgressSnapshot>? _progressRecoverySubscription;
+  Timer? _progressRecoveryTimer;
+  DateTime? _lastProgressEventAt;
 
   static const _sampleRates = [48000, 44100, 40000];
 
@@ -300,8 +304,66 @@ class _GenerateScreenState extends State<GenerateScreen> {
 
   @override
   void dispose() {
+    _progressRecoverySubscription?.cancel();
+    _progressRecoveryTimer?.cancel();
     widget.generationState.removeListener(_handleGenerationStateChanged);
     super.dispose();
+  }
+
+  void _markProgressEventReceived() {
+    _lastProgressEventAt = DateTime.now();
+  }
+
+  void _startProgressRecovery(int requestId) {
+    _progressRecoverySubscription?.cancel();
+    _progressRecoveryTimer?.cancel();
+    _lastProgressEventAt = DateTime.now();
+    _progressRecoverySubscription = _rvcBridge.progressSnapshots().listen((snapshot) {
+      if (!mounted || requestId != _activeGenerationRequestId) return;
+      _markProgressEventReceived();
+    });
+    _progressRecoveryTimer = Timer.periodic(_progressRecoveryPollInterval, (_) async {
+      if (!mounted || requestId != _activeGenerationRequestId) return;
+      if (!widget.generationState.isGenerating) return;
+      final lastEventAt = _lastProgressEventAt;
+      if (lastEventAt != null && DateTime.now().difference(lastEventAt) < const Duration(seconds: 2)) {
+        return;
+      }
+      try {
+        final metadata = await _rvcBridge.getResumableJobMetadata(
+          songPath: widget.songPath,
+          modelPath: widget.modelPath,
+          indexPath: widget.indexPath,
+          pitchChange: _pitchChange,
+          indexRate: _indexRate,
+          formant: _formant,
+          filterRadius: _filterRadius,
+          rmsMixRate: _rmsMixRate,
+          protectRate: _protectRate,
+          sampleRate: _sampleRate,
+          noiseGateDb: _noiseGateDb,
+          outputDenoiseEnabled: _outputDenoiseEnabled,
+          vocalRangeFilterEnabled: _vocalRangeFilterEnabled,
+        );
+        if (!mounted || requestId != _activeGenerationRequestId || metadata == null) return;
+        setState(() {
+          _resumableJobMetadata = metadata;
+        });
+        final recoveredProgress = metadata.overallProgress.clamp(0.0, 100.0);
+        if (recoveredProgress > widget.generationState.progress * 100.0) {
+          widget.generationState.updateProgress(recoveredProgress, '恢复进度中');
+        }
+      } catch (_) {
+      }
+    });
+  }
+
+  void _stopProgressRecovery() {
+    _progressRecoverySubscription?.cancel();
+    _progressRecoverySubscription = null;
+    _progressRecoveryTimer?.cancel();
+    _progressRecoveryTimer = null;
+    _lastProgressEventAt = null;
   }
 
   String _formatDuration(Duration duration) {
@@ -317,6 +379,7 @@ class _GenerateScreenState extends State<GenerateScreen> {
     final requestId = ++_activeGenerationRequestId;
     await _clearResumeElapsedDuration();
     widget.generationState.start();
+    _startProgressRecovery(requestId);
 
     try {
       await _saveParameters();
@@ -345,6 +408,7 @@ class _GenerateScreenState extends State<GenerateScreen> {
         },
       );
       if (!mounted || requestId != _activeGenerationRequestId) return;
+      _stopProgressRecovery();
       final elapsedGenerationTime = widget.generationState.complete('生成完成');
       setState(() {
         _resumableJobMetadata = null;
@@ -353,6 +417,7 @@ class _GenerateScreenState extends State<GenerateScreen> {
       widget.onGenerationComplete(outputPath, elapsedGenerationTime);
     } catch (e) {
       if (!mounted || requestId != _activeGenerationRequestId) return;
+      _stopProgressRecovery();
       widget.generationState.fail(_normalizeGenerationError(e));
       _refreshResumableJobMetadataSoon();
     }
@@ -384,6 +449,7 @@ class _GenerateScreenState extends State<GenerateScreen> {
         ? persistedElapsed
         : Duration(milliseconds: _resumableJobMetadata?.accumulatedElapsedMs ?? 0);
     widget.generationState.start(initialElapsed: initialElapsed);
+    _startProgressRecovery(requestId);
 
     try {
       await _saveParameters();
@@ -412,6 +478,7 @@ class _GenerateScreenState extends State<GenerateScreen> {
         },
       );
       if (!mounted || requestId != _activeGenerationRequestId) return;
+      _stopProgressRecovery();
       final elapsedGenerationTime = widget.generationState.complete('生成完成');
       setState(() {
         _resumableJobMetadata = null;
@@ -420,6 +487,7 @@ class _GenerateScreenState extends State<GenerateScreen> {
       widget.onGenerationComplete(outputPath, elapsedGenerationTime);
     } catch (e) {
       if (!mounted || requestId != _activeGenerationRequestId) return;
+      _stopProgressRecovery();
       widget.generationState.fail(_normalizeGenerationError(e));
       _refreshResumableJobMetadataSoon();
     }
@@ -463,6 +531,7 @@ class _GenerateScreenState extends State<GenerateScreen> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final _isGenerating = widget.generationState.isGenerating;
     final controlsLocked = _isGenerating || widget.otherModeRunning || widget.generationState.isStopping;
     final primaryActionLocked = widget.otherModeRunning || widget.generationState.isStopping;
@@ -758,4 +827,7 @@ class _GenerateScreenState extends State<GenerateScreen> {
       ),
     );
   }
+
+  @override
+  bool get wantKeepAlive => true;
 }

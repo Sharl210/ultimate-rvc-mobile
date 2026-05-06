@@ -24,7 +24,7 @@ class SongPickerScreen extends StatefulWidget {
   State<SongPickerScreen> createState() => _SongPickerScreenState();
 }
 
-class _SongPickerScreenState extends State<SongPickerScreen> with WidgetsBindingObserver {
+class _SongPickerScreenState extends State<SongPickerScreen> with WidgetsBindingObserver, AutomaticKeepAliveClientMixin {
   final AudioPlayer _audioPlayer = AudioPlayer();
   final RVCBridge _rvcBridge = RVCBridge();
   bool _isRecording = false;
@@ -212,6 +212,7 @@ class _SongPickerScreenState extends State<SongPickerScreen> with WidgetsBinding
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     return Scaffold(
       appBar: AppBar(
         title: Text('选择音频'),
@@ -337,4 +338,7 @@ class _SongPickerScreenState extends State<SongPickerScreen> with WidgetsBinding
       ),
     );
   }
+
+  @override
+  bool get wantKeepAlive => true;
 }
