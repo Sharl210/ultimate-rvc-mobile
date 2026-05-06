@@ -328,7 +328,7 @@ class RvcInferenceEngine(
                                     if (currentManifest != null && layout != null) {
                                     val convertedChunkFile = layout.convertedChunkFile(segmentIndex)
                                     if (currentManifest.completedChunkIndexes.contains(segmentIndex) && convertedChunkFile.isFile) {
-                                        appendWavSegment(writer, readCachedSegmentAudio(convertedChunkFile))
+                                        appendSegmentAudio(writer, readCachedSegmentAudio(convertedChunkFile), segment)
                                         return@forEachIndexed
                                     }
                                 }
@@ -350,11 +350,10 @@ class RvcInferenceEngine(
                                             request.onProgress(overallPercent, "第${segmentIndex + 1}/${segments.size}段：$step")
                                         },
                                     )
-                                    val centerAudio = trimSegmentCenterAudio(segmentAudio, segment, request.sampleRate)
                                     if (layout != null) {
-                                        writeWav(layout.convertedChunkFile(segmentIndex), centerAudio, request.sampleRate)
+                                        writeWav(layout.convertedChunkFile(segmentIndex), segmentAudio, request.sampleRate)
                                     }
-                                    appendWavSegment(writer, centerAudio)
+                                    appendSegmentAudio(writer, segmentAudio, segment)
                                     val manifestBeforeUpdate = manifest
                                     if (manifestBeforeUpdate != null) {
                                         val completedChunks = (manifestBeforeUpdate.completedChunkIndexes + segmentIndex).distinct().sorted()
@@ -406,7 +405,7 @@ class RvcInferenceEngine(
             store?.saveManifest(finalizePending)
         }
         requestNativeMemoryCleanup()
-        finalizeSegmentedOutput(request, songFile, outputPath, layout)
+        finalizeSegmentedOutput(request, songFile, outputPath, layout, segments)
 
         manifest?.let {
             store?.saveManifest(it.copy(
@@ -491,12 +490,14 @@ class RvcInferenceEngine(
         songFile: File,
         outputPath: File,
         layout: ResumableInferenceJobStore.ResumableInferenceJobLayout?,
+        segments: List<AudioSegment>,
     ) {
         request.cancellationToken.throwIfCancelled()
         request.onProgress(98.0, "整段后处理")
         val source16k = prepareOfflineInput16k(songFile, request)
         val stitchedAudio = if (layout != null && layout.outputsDirectory.isDirectory) {
-            readStitchedAudioFromConvertedChunks(layout, request)
+            rebuildSegmentedOutputFile(layout, request, segments, outputPath)
+            readCachedSegmentAudio(outputPath)
         } else {
             readCachedSegmentAudio(outputPath)
         }
@@ -1312,20 +1313,58 @@ class RvcInferenceEngine(
     }
 
     private fun trimSegmentCenterAudio(audio: FloatArray, segment: AudioSegment, sampleRate: Int): FloatArray {
+        return cropAudioPreferringContexts(
+            audio = audio,
+            targetSampleCount = segment.expectedCenterSampleCount(sampleRate),
+            preferredTrimStartSamples = segment.expectedLeadingContextSampleCount(sampleRate),
+            preferredTrimEndSamples = segment.expectedTrailingContextSampleCount(sampleRate),
+        )
+    }
+
+    private fun appendSegmentAudio(writer: WavSegmentWriter, audio: FloatArray, segment: AudioSegment) {
+        val centerWindow = selectSegmentCenterWindow(audio, segment)
+        if (centerWindow.isEmpty()) return
+        appendWavSegment(writer, centerWindow)
+    }
+
+    private fun selectSegmentCenterWindow(audio: FloatArray, segment: AudioSegment): FloatArray {
+        if (audio.isEmpty()) return FloatArray(0)
         val decodeDurationUs = (segment.decodeEndUs - segment.decodeStartUs).coerceAtLeast(1L)
         val centerOffsetUs = (segment.centerStartUs - segment.decodeStartUs).coerceAtLeast(0L)
         val centerDurationUs = (segment.centerEndUs - segment.centerStartUs).coerceAtLeast(1L)
+        val keepStartSamples = (audio.size.toLong() * centerOffsetUs / decodeDurationUs).toInt().coerceIn(0, audio.size)
+        val keepEndSamples = (audio.size.toLong() * (centerOffsetUs + centerDurationUs) / decodeDurationUs).toInt().coerceIn(keepStartSamples, audio.size)
+        if (keepEndSamples <= keepStartSamples) return FloatArray(0)
+        return audio.copyOfRange(keepStartSamples, keepEndSamples)
+    }
 
-        val expectedDecodeSamples = ((decodeDurationUs * sampleRate) / 1_000_000L).toInt().coerceAtLeast(1)
-        val expectedCenterOffsetSamples = ((centerOffsetUs * sampleRate) / 1_000_000L).toInt().coerceAtLeast(0)
-        val expectedCenterSamples = ((centerDurationUs * sampleRate) / 1_000_000L).toInt().coerceAtLeast(1)
+    private fun cropAudioPreferringContexts(
+        audio: FloatArray,
+        targetSampleCount: Int,
+        preferredTrimStartSamples: Int,
+        preferredTrimEndSamples: Int,
+    ): FloatArray {
+        val safeTargetSampleCount = targetSampleCount.coerceAtLeast(1)
+        if (audio.isEmpty()) return FloatArray(safeTargetSampleCount)
+        if (audio.size == safeTargetSampleCount) return audio
+        if (audio.size < safeTargetSampleCount) {
+            val padded = FloatArray(safeTargetSampleCount)
+            audio.copyInto(padded, endIndex = audio.size)
+            val tailValue = audio.last()
+            for (index in audio.size until padded.size) {
+                padded[index] = tailValue
+            }
+            return padded
+        }
 
-        val sampleScale = audio.size.toDouble() / expectedDecodeSamples.toDouble()
-        val trimStartSamples = (expectedCenterOffsetSamples * sampleScale).toInt().coerceIn(0, audio.size)
-        val trimSampleCount = (expectedCenterSamples * sampleScale).toInt().coerceAtLeast(1)
-        val trimEndSamples = (trimStartSamples + trimSampleCount).coerceIn(trimStartSamples, audio.size)
-
-        return audio.copyOfRange(trimStartSamples, trimEndSamples)
+        val totalTrim = audio.size - safeTargetSampleCount
+        var trimStartSamples = preferredTrimStartSamples.coerceIn(0, totalTrim)
+        var trimEndSamples = preferredTrimEndSamples.coerceIn(0, totalTrim - trimStartSamples)
+        val remainingTrim = totalTrim - trimStartSamples - trimEndSamples
+        trimStartSamples += remainingTrim / 2
+        trimEndSamples += remainingTrim - (remainingTrim / 2)
+        val endIndex = (audio.size - trimEndSamples).coerceAtLeast(trimStartSamples)
+        return audio.copyOfRange(trimStartSamples, endIndex)
     }
 
     private fun trimDecodedAudioToRequestedWindow(
@@ -1377,31 +1416,28 @@ class RvcInferenceEngine(
         return DecodedAudio(pcm, sampleRate, channelCount)
     }
 
-    private fun readStitchedAudioFromConvertedChunks(
+    private fun rebuildSegmentedOutputFile(
         layout: ResumableInferenceJobStore.ResumableInferenceJobLayout,
         request: RvcInferenceRequest,
-    ): FloatArray {
-        val chunkFiles = layout.outputsDirectory.listFiles()
-            ?.filter { it.isFile && it.name.startsWith("converted_chunk_") && it.name.endsWith(".wav") }
-            ?.sortedBy { it.name }
-            .orEmpty()
-        if (chunkFiles.isEmpty()) return FloatArray(0)
-        val pieces = chunkFiles.mapIndexed { index, file ->
-            request.cancellationToken.throwIfCancelled()
-            request.onProgress(
-                95.0 + ((index + 1).toDouble() / chunkFiles.size.toDouble()) * 2.0,
-                "重建最终拼接 ${index + 1}/${chunkFiles.size}",
-            )
-            readCachedSegmentAudio(file)
+        segments: List<AudioSegment>,
+        outputPath: File,
+    ) {
+        if (segments.isEmpty()) {
+            writeWav(outputPath, FloatArray(0), request.sampleRate)
+            return
         }
-        val totalSize = pieces.sumOf { it.size }
-        val stitched = FloatArray(totalSize)
-        var offset = 0
-        for (piece in pieces) {
-            System.arraycopy(piece, 0, stitched, offset, piece.size)
-            offset += piece.size
+        WavSegmentWriter(outputPath, request.sampleRate).use { writer ->
+            segments.forEachIndexed { index, segment ->
+                request.cancellationToken.throwIfCancelled()
+                request.onProgress(
+                    95.0 + ((index + 1).toDouble() / segments.size.toDouble()) * 2.0,
+                    "重建最终拼接 ${index + 1}/${segments.size}",
+                )
+                val file = layout.convertedChunkFile(index)
+                require(file.isFile) { "缺少分段结果：${file.name}" }
+                appendSegmentAudio(writer, readCachedSegmentAudio(file), segment)
+            }
         }
-        return stitched
     }
 
     private fun bytesToFloatPcm(bytes: ByteArray, channelCount: Int, pcmEncoding: Int): FloatArray {
@@ -2233,7 +2269,16 @@ class RvcInferenceEngine(
         val centerEndUs: Long,
         val decodeStartUs: Long,
         val decodeEndUs: Long,
-    )
+    ) {
+        fun expectedCenterSampleCount(sampleRate: Int): Int =
+            (((centerEndUs - centerStartUs).coerceAtLeast(1L) * sampleRate.toLong()) / 1_000_000L).toInt().coerceAtLeast(1)
+
+        fun expectedLeadingContextSampleCount(sampleRate: Int): Int =
+            (((centerStartUs - decodeStartUs).coerceAtLeast(0L) * sampleRate.toLong()) / 1_000_000L).toInt().coerceAtLeast(0)
+
+        fun expectedTrailingContextSampleCount(sampleRate: Int): Int =
+            (((decodeEndUs - centerEndUs).coerceAtLeast(0L) * sampleRate.toLong()) / 1_000_000L).toInt().coerceAtLeast(0)
+    }
 
     data class FeatureIndex(
         val features: FloatArray,
