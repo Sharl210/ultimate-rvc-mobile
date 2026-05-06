@@ -582,7 +582,7 @@ class _VoiceChangerScreenState extends State<VoiceChangerScreen> {
           ),
           const SizedBox(height: 16),
           FilledButton.icon(
-            onPressed: overlayControlsLocked && !_overlayRunning ? null : _toggleOverlay,
+            onPressed: _toggleOverlay,
             icon: Icon(_overlayRunning ? Icons.close : Icons.graphic_eq),
             label: Text(_overlayRunning ? '关闭悬浮窗' : '打开悬浮窗'),
           ),
