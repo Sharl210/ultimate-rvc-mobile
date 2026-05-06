@@ -125,42 +125,6 @@ class VoiceChangerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             result.success(null)
             return
         }
-        val directMetadata = VoiceChangerRecorder(
-            context = appContext,
-            modelsDir = File(appContext.filesDir, "models"),
-            config = VoiceChangerRecordingConfig(
-                modelPath = modelPath,
-                indexPath = call.argument<String>("indexPath"),
-                pitchChange = call.argument<Double>("pitchChange") ?: 0.0,
-                formant = call.argument<Double>("formant") ?: 0.0,
-                indexRate = call.argument<Double>("indexRate") ?: 0.75,
-                rmsMixRate = call.argument<Double>("rmsMixRate") ?: 0.25,
-                protectRate = call.argument<Double>("protectRate") ?: 0.33,
-                filterRadius = call.argument<Int>("filterRadius") ?: 3,
-                sampleRate = call.argument<Int>("sampleRate") ?: 48_000,
-                noiseGateDb = call.argument<Double>("noiseGateDb") ?: 35.0,
-                outputDenoiseEnabled = call.argument<Boolean>("outputDenoiseEnabled") ?: true,
-                vocalRangeFilterEnabled = call.argument<Boolean>("vocalRangeFilterEnabled") ?: true,
-                parallelChunkCount = 1,
-                playbackDelaySeconds = 3.0,
-                enableRootPerformanceMode = false,
-            ),
-            onProcessingProgress = {},
-            onProcessingComplete = {},
-            onProcessingFailed = {},
-            onNormalPlaybackComplete = {},
-            onTrialPlaybackComplete = {},
-        ).resumableMetadata()
-        val directMetadataMap = if (directMetadata != null) {
-            mapOf(
-                "jobId" to directMetadata.jobId,
-                "overallProgress" to directMetadata.overallProgress,
-                "state" to directMetadata.state,
-                "accumulatedElapsedMs" to 0,
-            )
-        } else {
-            null
-        }
         val resumableInputPath = inputPath ?: run {
             VoiceChangerRecorder(
                 context = appContext,
@@ -190,7 +154,7 @@ class VoiceChangerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             ).currentInputPath()
         }
         if (resumableInputPath.isNullOrBlank() || !File(resumableInputPath).isFile) {
-            result.success(directMetadataMap)
+            result.success(null)
             return
         }
         val request = RvcInferenceRequest(
@@ -220,38 +184,6 @@ class VoiceChangerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 ResumableInferenceJobStore.VOICE_CHANGER_INFERENCE_TEMP_DIRECTORY,
             ),
         ).getResumableMetadata(request)
-        val mergedMetadata = when {
-            metadata != null && directMetadata != null -> {
-                if (metadata.overallProgress >= directMetadata.overallProgress) {
-                    mapOf(
-                        "jobId" to metadata.jobId,
-                        "overallProgress" to metadata.overallProgress,
-                        "state" to metadata.state,
-                        "accumulatedElapsedMs" to metadata.accumulatedElapsedMs,
-                    )
-                } else {
-                    mapOf(
-                        "jobId" to directMetadata.jobId,
-                        "overallProgress" to directMetadata.overallProgress,
-                        "state" to directMetadata.state,
-                        "accumulatedElapsedMs" to 0,
-                    )
-                }
-            }
-            metadata != null -> mapOf(
-                "jobId" to metadata.jobId,
-                "overallProgress" to metadata.overallProgress,
-                "state" to metadata.state,
-                "accumulatedElapsedMs" to metadata.accumulatedElapsedMs,
-            )
-            directMetadata != null -> mapOf(
-                "jobId" to directMetadata.jobId,
-                "overallProgress" to directMetadata.overallProgress,
-                "state" to directMetadata.state,
-                "accumulatedElapsedMs" to 0,
-            )
-            else -> null
-        }
         val metadataMap = if (metadata != null) {
             mapOf(
                 "jobId" to metadata.jobId,
@@ -262,6 +194,6 @@ class VoiceChangerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         } else {
             null
         }
-        result.success(mergedMetadata ?: metadataMap)
+        result.success(metadataMap)
     }
 }
