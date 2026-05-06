@@ -8,7 +8,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../services/rvc_bridge.dart';
 
 class SongPickerScreen extends StatefulWidget {
-  final Function(String) onSongSelected;
+  final Future<void> Function(String) onSongSelected;
   final VoidCallback? onSongCleared;
   final String? selectedSongPath;
   final String? selectedSongDisplayName;
@@ -36,6 +36,7 @@ class _SongPickerScreenState extends State<SongPickerScreen> with WidgetsBinding
   bool _playbackCompleted = false;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
+  String? _preparedSourcePath;
 
   @override
   void initState() {
@@ -123,10 +124,30 @@ class _SongPickerScreenState extends State<SongPickerScreen> with WidgetsBinding
 
   Future<void> _loadSelectedAudioDuration() async {
     if (widget.selectedSongPath == null) return;
-    await _audioPlayer.setSource(DeviceFileSource(widget.selectedSongPath!));
-    final duration = await _audioPlayer.getDuration();
-    if (mounted && duration != null) {
-      setState(() => _duration = duration);
+    final path = widget.selectedSongPath!;
+    Duration? nativeDuration;
+    try {
+      nativeDuration = await _rvcBridge.getAudioDuration(path);
+    } catch (_) {
+      nativeDuration = null;
+    }
+    await _audioPlayer.stop();
+    await _audioPlayer.setSource(DeviceFileSource(path));
+    _preparedSourcePath = path;
+    Duration? duration;
+    for (final delay in const [Duration.zero, Duration(milliseconds: 120), Duration(milliseconds: 260)]) {
+      if (delay > Duration.zero) {
+        await Future.delayed(delay);
+      }
+      duration = await _audioPlayer.getDuration();
+      if (duration != null && duration > Duration.zero) {
+        break;
+      }
+    }
+    if (mounted) {
+      setState(() => _duration = (nativeDuration != null && nativeDuration > Duration.zero)
+          ? nativeDuration
+          : (duration ?? Duration.zero));
     }
   }
 
@@ -140,7 +161,7 @@ class _SongPickerScreenState extends State<SongPickerScreen> with WidgetsBinding
       if (result != null && result.files.isNotEmpty) {
         final filePath = result.files.single.path;
         if (filePath != null) {
-          widget.onSongSelected(filePath);
+          await widget.onSongSelected(filePath);
         }
       }
     } catch (e) {
@@ -156,7 +177,8 @@ class _SongPickerScreenState extends State<SongPickerScreen> with WidgetsBinding
         final recordingPath = await _rvcBridge.stopRecording();
         _stopRecordingTimer();
         setState(() => _isRecording = false);
-        widget.onSongSelected(recordingPath);
+        await widget.onSongSelected(recordingPath);
+        await _loadSelectedAudioDuration();
         _resetRecordingTimer();
         return;
       }
@@ -186,11 +208,18 @@ class _SongPickerScreenState extends State<SongPickerScreen> with WidgetsBinding
       _userPausedAudio = true;
       await _audioPlayer.pause();
     } else {
+      final selectedPath = widget.selectedSongPath!;
+      if (_userPausedAudio && _preparedSourcePath == selectedPath && _position > Duration.zero) {
+        _userPausedAudio = false;
+        await _audioPlayer.resume();
+        return;
+      }
       _userPausedAudio = false;
-      if (_playbackCompleted) {
+      if (_playbackCompleted || _preparedSourcePath != selectedPath || _position == Duration.zero) {
         await _audioPlayer.stop();
-        await _audioPlayer.setSource(DeviceFileSource(widget.selectedSongPath!));
-        await _audioPlayer.play(DeviceFileSource(widget.selectedSongPath!));
+        await _audioPlayer.setSource(DeviceFileSource(selectedPath));
+        _preparedSourcePath = selectedPath;
+        await _audioPlayer.play(DeviceFileSource(selectedPath));
         _playbackCompleted = false;
         return;
       }

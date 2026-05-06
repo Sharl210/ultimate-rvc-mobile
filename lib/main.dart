@@ -360,13 +360,17 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  void _onSongSelected(String path) async {
+  Future<void> _onSongSelected(String path) async {
     final previousSongPath = _selectedSongPath;
     final previousOutputPath = _generatedOutputPath;
-    final importedPath = await _importPickedFile(kind: 'audio', sourcePath: path);
+    final normalizedPath = File(path).absolute.path;
+    final useDirectPath = normalizedPath.contains('/recordings/') || normalizedPath.contains('/TEMP/');
+    final importedPath = useDirectPath
+        ? normalizedPath
+        : await _importPickedFile(kind: 'audio', sourcePath: normalizedPath);
     setState(() {
       _selectedSongPath = importedPath;
-      _selectedSongDisplayName = File(path).uri.pathSegments.last;
+      _selectedSongDisplayName = File(importedPath).uri.pathSegments.last;
       _moduleIndex = 0;
       _audioStepIndex = 1; // Move to model picker
       _generatedOutputPath = null;
@@ -377,12 +381,12 @@ class _MainScreenState extends State<MainScreen> {
     _saveState();
     await _clearAudioInferenceTempWorkspace();
     await _clearVoiceChangerTempWorkspace();
-    if (previousSongPath != path) {
+    if (previousSongPath != importedPath) {
       await _deleteOwnedPathIfNeeded(previousSongPath);
     }
   }
 
-  void _onSongCleared() async {
+  Future<void> _onSongCleared() async {
     final previousSongPath = _selectedSongPath;
     final previousOutputPath = _generatedOutputPath;
     setState(() {
@@ -399,7 +403,7 @@ class _MainScreenState extends State<MainScreen> {
     await _deleteOwnedPathIfNeeded(previousSongPath);
   }
 
-  void _onModelSelected(String path) async {
+  Future<void> _onModelSelected(String path) async {
     final previousModelPath = _selectedModelPath;
     final previousOutputPath = _generatedOutputPath;
     final importedPath = await _importPickedFile(kind: 'model', sourcePath: path);
@@ -417,7 +421,7 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  void _onModelCleared() async {
+  Future<void> _onModelCleared() async {
     final previousModelPath = _selectedModelPath;
     final previousIndexPath = _selectedIndexPath;
     final previousOutputPath = _generatedOutputPath;
@@ -450,7 +454,7 @@ class _MainScreenState extends State<MainScreen> {
     _saveState();
   }
 
-  void _onIndexSelected(String? path) async {
+  Future<void> _onIndexSelected(String? path) async {
     final previousIndexPath = _selectedIndexPath;
     final previousOutputPath = _generatedOutputPath;
     final importedPath = path == null ? null : await _importPickedFile(kind: 'index', sourcePath: path);
