@@ -381,6 +381,18 @@ class RVCBridge {
     }
   }
 
+  Future<Duration> getAudioDuration(String path) async {
+    try {
+      final result = await _channel.invokeMethod('getAudioDurationMs', {
+        'path': path,
+      });
+      final durationMs = (result as num?)?.toInt() ?? 0;
+      return Duration(milliseconds: durationMs.clamp(0, 1 << 31));
+    } on PlatformException catch (e) {
+      throw Exception('读取音频时长失败：${e.message}');
+    }
+  }
+
   Future<String> convertIndex(String sourcePath) async {
     try {
       final result = await _channel.invokeMethod('convertIndex', {

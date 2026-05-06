@@ -115,10 +115,18 @@ class _ResultScreenState extends State<ResultScreen> with WidgetsBindingObserver
 
   Future<void> _loadOutputAudioDuration() async {
     _playbackCompleted = false;
+    Duration? nativeDuration;
+    try {
+      nativeDuration = await _rvcBridge.getAudioDuration(widget.outputPath);
+    } catch (_) {
+      nativeDuration = null;
+    }
     await _audioPlayer.setSource(DeviceFileSource(widget.outputPath));
     final duration = await _audioPlayer.getDuration();
-    if (mounted && duration != null) {
-      setState(() => _duration = duration);
+    if (mounted) {
+      setState(() => _duration = (nativeDuration != null && nativeDuration > Duration.zero)
+          ? nativeDuration
+          : (duration ?? Duration.zero));
     }
   }
 
