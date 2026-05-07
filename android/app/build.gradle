@@ -2,7 +2,6 @@ plugins {
     id "com.android.application"
     id "kotlin-android"
     id "dev.flutter.flutter-gradle-plugin"
-    id "com.chaquo.python"
 }
 
 def localProperties = new Properties()
@@ -25,7 +24,8 @@ if (flutterVersionName == null) {
 
 android {
     namespace "com.ultimatervc.mobile"
-    compileSdk flutter.compileSdkVersion
+    compileSdk 34
+    buildToolsVersion "34.0.0"
     ndkVersion flutter.ndkVersion
 
     compileOptions {
@@ -35,6 +35,10 @@ android {
 
     kotlinOptions {
         jvmTarget = '1.8'
+    }
+
+    sourceSets {
+        main.java.srcDirs += 'src/main/kotlin'
     }
 
     defaultConfig {
@@ -54,33 +58,17 @@ android {
         release {
             signingConfig signingConfigs.debug
             minifyEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
 
-    chaquopy {
-        defaultConfig {
-            python {
-                version "3.11"
-                buildPython "C:/Python311/python.exe"  // Windows
-                // buildPython "/usr/bin/python3.11"  // Linux/Mac
-            }
-            
-            pip {
-                install "-r", "requirements-colab.txt"
-            }
-            
-            staticProxy "python.main"
-        }
-        
-        sourceSets {
-            main {
-                python.srcDir "../../python"
-            }
-        }
-    }
 }
 
 flutter {
     source '../..'
+}
+
+dependencies {
+    implementation "com.microsoft.onnxruntime:onnxruntime-android:1.20.0"
 }

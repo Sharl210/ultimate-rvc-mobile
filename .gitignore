@@ -1,0 +1,35 @@
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.metadata
+.packages
+.pub-cache/
+.pub/
+build/
+.idea/
+.vscode/
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Nested worktrees and temp artifacts
+.worktrees/
+
+# Android / Gradle local files
+android/.gradle/
+android/local.properties
+
+# iOS generated files
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+ios/Runner/GeneratedPluginRegistrant.*
+
+# Logs
+*.log
+
+# Large local runtime models (kept outside git history)
+assets/models/*.onnx

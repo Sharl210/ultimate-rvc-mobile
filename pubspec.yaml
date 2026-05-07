@@ -21,10 +21,16 @@ dependencies:
   
   # Sharing
   share_plus: ^7.2.1
-  
-  # Platform channels
-  flutter_ffmpeg: ^0.3.0
 
+  # Local settings
+  shared_preferences: ^2.2.2
+  permission_handler: ^11.3.1
+  flutter_svg: ^2.0.10+1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  
 flutter:
   uses-material-design: true
   
@@ -32,10 +38,3 @@ flutter:
   assets:
     - assets/images/
     - assets/models/
-
-  fonts:
-    - family: Roboto
-      fonts:
-        - asset: fonts/Roboto-Regular.ttf
-        - asset: fonts/Roboto-Bold.ttf
-          weight: 700

@@ -9,5 +9,6 @@ class MainActivity: FlutterActivity() {
         
         // Register the RVC plugin
         flutterEngine.plugins.add(RVCPlugin())
+        flutterEngine.plugins.add(VoiceChangerPlugin())
     }
 }

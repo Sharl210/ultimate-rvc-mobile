@@ -1,223 +1,400 @@
-# Ultimate RVC Mobile 🎵
+# 🎙️ Ultimate RVC Mobile
 
-Cross-platform mobile app for AI-powered voice conversion using Retrieval-based Voice Conversion (RVC) technology. Convert songs and audio to different voices directly on your device!
+<div align="center">
 
-## Features ✨
+![Platform](https://img.shields.io/badge/平台-Android%20优先-3b82f6?style=for-the-badge)
+![Flutter](https://img.shields.io/badge/Flutter-3.x-38bdf8?style=for-the-badge&logo=flutter)
+![Engine](https://img.shields.io/badge/RVC-v2%20ONNX-8b5cf6?style=for-the-badge)
+![Inference](https://img.shields.io/badge/推理-本地离线运行-10b981?style=for-the-badge)
+![Release](https://img.shields.io/badge/Release-APK%20可直接下载-f59e0b?style=for-the-badge)
 
-- **🎤 Voice Conversion**: Transform any song or audio to sound like a different voice
-- **📱 Cross-Platform**: Native apps for both Android and iOS
-- **🔒 Privacy-First**: All processing happens locally on your device
-- **⚡ High Quality**: Preserves the original RVC inference pipeline
-- **🎛️ Customizable**: Adjust pitch, voice strength, and other parameters
-- **📤 Share Results**: Export and share your generated audio
+一个面向 Android 的本地 RVC 移动端项目(**仅支持v2版本模型**)，支持**音频推理**、**悬浮窗变声器**、实时推理（移动端性能受限，权限受限估仅供演示用途）；新增独有特性：**降噪优化，音域过滤，噪声过滤**
 
-## Quick Start 🚀
+</div>
 
-### Prerequisites
+---
+## 🔥 项目前言
 
-- **Flutter 3.19.0** or higher
-- **Python 3.11** (for local development)
-- **Android Studio** (for Android builds)
-- **Xcode** (for iOS builds, macOS only)
+项目由: 人工指导设计测试，**OpenCode+OMO+GPT5.4/5.5**开发
 
-### Installation
+非专业技术人员，故有些技术细节表述可能有误欢迎指正，最后感谢**B站UP主:@花儿不哭大佬的开源RVC项目，当然项目所使用的ONNX推理框架咱们也是同样非常感谢滴👍**
 
-```bash
-# Clone the repository
-git clone https://github.com/JackismyShephard/ultimate-rvc-mobile.git
-cd ultimate-rvc-mobile
+测试环境为：**骁龙8E5处理器，16GB运行内存**，软件跑在CPU上
 
-# Run the build script
-./build.sh
-```
+实机效果："**纯官方调度不开任何性能增强模式下,正常室温无巨大散热压力，且不使用index索引推理**"表现为：**输入音频时长x2.2为推理用时**，例如：输入的音频是30秒预估处理时长大约为1分钟左右，其实，一般来讲，索引文件并不会非常显著的提升生成效果。好的模型一般也不需要index索引据说。
 
-The build script will:
-- Install dependencies
-- Build Android APK
-- Build iOS app (macOS only)
-- Generate release artifacts
+内存占用:**主进程: ～200MB**，**处理进程: 1.1GB～1.8GB**（该进程非常驻仅在处理时拉起，用后即焚，一般来讲**1.4GB**左右，**理论上来讲，不管多长的音频，内存也只会保持在这个区间**，因为这边做了分片处理，减轻内存压力的同时，还支持断点续传，不会一次性撑爆内存导致OOM，当然你手机内存本来就小的除外）
 
-### Manual Build
+功耗：8-11W
 
-```bash
-# Install Flutter dependencies
-flutter pub get
+## 🤔 为什么不使用gpu推理，要使用CPU？
 
-# Build Android APK
-flutter build apk --release
+项目初期就试着迁移到GPU过，但是似乎是RVC模型算子并不能在安卓的GPU上跑（至少ONNX这个框架跑不起来，当时是强行迁过去也会自行fallback回CPU跑）
 
-# Build iOS app (macOS only)
-flutter build ios --release
-```
+## ✨ 项目定位
 
-## Technology Stack 🛠️
+这个仓库不是“只会打开模型和选音频的壳子”，而是已经把下面这些能力真正做进了移动端：
 
-### Frontend
-- **Flutter 3.19**: Cross-platform UI framework
-- **Dart**: Programming language
-- **Material Design 3**: Modern UI components
+- 🎵 **离线音频推理**：选择音频、选择模型/索引、调整参数、生成结果、试听、分享、保存
+- ♻️ **继续未完成**：长音频支持分段落盘，中断后可继续处理
+- ⚡ **实时推理演示**：本地麦克风采集 + 实时推理 + AudioTrack 输出 + 状态诊断信息
+- 🎤 **悬浮窗变声器**：录音、处理、暂停、继续、试听、保存处理后音频、保存原始录音
+- 📚 **内置说明页**：参数解释页、`mobile.index` 转换教程页
+- 📈 **分贝仪**：实时 dB 采样、数值锁定、实时曲线、全屏横屏查看
+- 🎼 **音高检测**：标准音名/相对半音值显示、基准音高设置、实时曲线、全屏横屏查看
 
-### Backend (Local Processing)
-- **Python 3.11**: AI processing engine
-- **PyTorch 2.2**: Deep learning framework
-- **Hubert**: Speech representation learning
-- **RMVPE**: Robust F0 estimation
-- **Librosa**: Audio processing library
-
-### Platform Integration
-- **Android**: Chaquopy for Python integration
-- **iOS**: PythonKit + Kivy-ios for Python support
-
-## Architecture 🏗️
-
-```
-ultimate_rvc_mobile/
-├── android/           # Android-specific code (Chaquopy)
-├── ios/              # iOS-specific code (PythonKit)
-├── lib/              # Flutter UI and business logic
-├── python/           # Python RVC engine
-│   ├── ultimate_rvc/ # Core RVC implementation
-│   ├── main.py       # Python entry point
-│   └── download_weights.py  # Model management
-├── models/           # AI model placeholders
-└── build.sh          # Build automation script
-```
-
-## Usage 📱
-
-1. **Select Audio**: Choose a song or audio file from your device
-2. **Pick Voice Model**: Select a trained voice model (.pth or .index)
-3. **Configure Settings**: Adjust pitch, voice strength, and other parameters
-4. **Generate**: Convert the audio to the selected voice
-5. **Share**: Listen to the result and share with others
-
-### Voice Parameters
-- **Pitch Change**: Adjust voice pitch (-12 to +12 semitones)
-- **Voice Strength**: Control how much of the target voice to apply (0-100%)
-- **Filter Radius**: Post-processing filter strength
-- **RMS Mix Rate**: Volume mixing between original and converted audio
-- **Protect Rate**: Preserve consonants and speech clarity
-
-## Voice Models 🎭
-
-The app supports standard RVC voice models:
-- `.pth` files: PyTorch model weights
-- `.index` files: Feature index files
-
-### Getting Models
-- Download from RVC community repositories
-- Train your own using the Ultimate RVC desktop version
-- Share models with the community
-
-## Privacy & Security 🔐
-
-- **No Data Collection**: We don't collect any personal data
-- **Local Processing**: All AI processing happens on your device
-- **No Cloud Uploads**: Audio files never leave your device
-- **Secure Storage**: Models and generated files stay in app storage
-
-## Building from Source 🔧
-
-### Android Build
-```bash
-# Install dependencies
-flutter pub get
-
-# Build APK
-flutter build apk --release --target-platform android-arm64
-
-# Output: build/app/outputs/flutter-apk/app-release.apk
-```
-
-### iOS Build (macOS only)
-```bash
-# Install CocoaPods dependencies
-cd ios && pod install && cd ..
-
-# Build iOS app
-flutter build ios --release
-
-# Open in Xcode for final configuration
-open ios/Runner.xcworkspace
-```
-
-## Development 🚧
-
-### Project Structure
-- `lib/main.dart`: App entry point
-- `lib/screens/`: UI screens
-- `lib/services/`: Platform bridges
-- `python/main.py`: Python-Flutter interface
-- `python/ultimate_rvc/`: Core RVC implementation
-
-### Adding Features
-1. Update Flutter UI in `lib/`
-2. Add Python functionality in `python/`
-3. Update platform bridges for Android/iOS
-4. Test on both platforms
-
-## Troubleshooting 🔧
-
-### Common Issues
-
-**Build Fails**: 
-- Ensure Flutter 3.19.0 is installed
-- Check Python 3.11 availability
-- Verify Android/iOS development tools
-
-**Model Download Fails**:
-- Check internet connection
-- Ensure sufficient storage space (2GB+)
-- Verify app permissions
-
-**Audio Processing Fails**:
-- Check audio file format (MP3, WAV, M4A supported)
-- Ensure voice model is valid
-- Verify device has sufficient RAM (4GB+ recommended)
-
-### Getting Help
-- Check [GitHub Issues](https://github.com/JackismyShephard/ultimate-rvc-mobile/issues)
-- Join our [Discord Community](https://discord.gg/ultimatervc)
-- Read the [Ultimate RVC Documentation](https://github.com/JackismyShephard/ultimate-rvc)
-
-## Contributing 🤝
-
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
-
-### Development Setup
-1. Fork the repository
-2. Set up development environment
-3. Make your changes
-4. Test on both platforms
-5. Submit a pull request
-
-## License 📄
-
-This project is licensed under the MIT License - see [LICENSE](LICENSE) file for details.
-
-### Dependencies
-- Uses Ultimate RVC (MIT License)
-- Incorporates various open-source libraries
-- Voice model usage subject to original owner rights
-
-## Acknowledgments 🙏
-
-- **Ultimate RVC Team**: Original RVC implementation
-- **Flutter Community**: Cross-platform framework
-- **PyTorch Team**: Deep learning framework
-- **Open Source Contributors**: Various libraries and tools
-
-## Disclaimer ⚠️
-
-This software is for educational and research purposes. Users are responsible for:
-- Complying with local laws and regulations
-- Obtaining appropriate permissions for voice usage
-- Respecting voice owner rights and copyrights
+> ℹ️ 正式发布的 APK 已打包 `hubert.onnx` 与 `rmvpe.onnx` 两个基础模型，可直接安装使用。
 
 ---
 
-Made with ❤️ by the Ultimate RVC Mobile Team
+## 🚀 目前已经实现了什么
 
-**GitHub**: https://github.com/JackismyShephard/ultimate-rvc-mobile  
-**Version**: 1.0.0  
-**Last Updated**: October 18, 2025
+### 🎧 1. 音频推理完整闭环
+
+- 支持从本地选择音频文件
+- 支持直接录音并把录音作为推理输入
+- 支持导入 `.onnx` 音色模型
+- 支持导入可选的 `mobile.index`
+- 支持常用 RVC 参数调节：
+  - Pitch
+  - Formant
+  - Index Rate
+  - Filter Radius
+  - RMS Mix
+  - Protect
+  - Noise Gate
+  - Sample Rate
+  - 输出降噪
+  - 音域过滤
+- 支持生成进度显示
+- 支持中止生成
+- 支持结果页播放、分享、保存、重新生成
+
+### ♻️ 2. 长音频可恢复处理
+
+- 超过阈值的音频会自动走**分段处理**而不是一次性硬算
+- 分段结果和状态会写入工作目录，包含：
+  - `manifest.json`
+  - `chunks/`
+  - `outputs/converted_chunk_xxxxx.wav`
+- 中途被中断后，支持从已完成的进度点继续
+- 继续未完成不是假按钮，而是实际依赖 manifest 和分段文件恢复
+
+### ⚡ 3. 实时推理演示页
+
+- 支持麦克风实时输入
+- 支持本地实时 RVC 推理
+- 支持实时状态回传
+- 支持显示运行状态诊断信息，例如：
+  - 推理耗时
+  - 缓冲区积压
+  - 输出写入次数
+  - 峰值信息
+- 支持保存实时参数
+
+> ⚠️ 当前实时页定位为**演示功能**。页面内已明确提示：手机端实时性能和系统音频链路限制很大，当前无法指定输入输出设备，实际体验可能约每 6 秒卡顿一次。
+
+### 🎤 4. 悬浮窗变声器
+
+- 支持独立的变声器模式页面
+- 支持悬浮窗控制
+- 支持录音 → 处理 → 试听播放 → 保存
+- 支持手势交互：
+  - 单击
+  - 双击
+  - 三击
+  - 长按
+- 支持：
+  - 保存处理后的音频
+  - 保存原始录音
+  - 暂停处理
+  - 继续处理
+  - 取消并清理
+- 支持继续未完成恢复
+
+### 🧰 5. 工具页与说明页
+
+- `mobile.index` 转换教程页
+- 参数解释页
+- 分贝仪页
+- 音高检测页
+
+### 📊 6. 测量工具增强
+
+- 分贝仪与音高检测均支持：
+  - 页面激活时自动开始检测
+  - 锁定后停止采集并冻结曲线
+  - 进入后台自动锁定，回到前台后自动恢复（仅自动锁定场景）
+  - 实时曲线与全屏横屏查看
+  - 清空曲线按钮
+- 音高检测额外支持：
+  - 标准音名显示（如 `C4`、`F#3`）
+  - 当前频率显示（Hz）
+  - 相对半音值显示
+  - 基准音高自定义与一键设为当前音高
+  - 更稳定的实时音高估计与曲线显示
+
+### 📁 7. 文件管理与导出语义
+
+- 工作中间文件与用户保存文件分离
+- 中间文件走 TEMP 工作目录
+- 用户手动保存时会导出到系统下载目录
+- 当前导出目录为：
+
+```text
+Download/RVC_Convert/
+Download/RVC_Convert/变声器模式/
+```
+
+---
+
+## 🧭 模块导航
+
+当前主界面提供 7 个功能模块：
+
+- 🎵 音频推理
+- ⚡ 实时推理
+- 🎤 变声器模式
+- 📈 分贝仪
+- 🎼 音高检测
+- 🎛️ 参数解释
+- 🔄 `mobile.index` 转换教程
+
+---
+
+## 🧠 推理与工程实现特点
+
+### 🧩 Android 原生推理链
+
+当前核心推理链并不是简单调用一个外部脚本，而是 Android 端已有较完整的原生实现：
+
+- HuBERT 特征提取
+- RMVPE F0 提取
+- 索引融合
+- Protect / RMS / Formant / Noise Gate 等参数链路
+- 输出降噪 / 音域过滤 / 后处理
+
+### 📂 运行时基础模型
+
+项目运行时依赖以下基础 ONNX 文件：
+
+- `assets/models/hubert.onnx`
+- `assets/models/rmvpe.onnx`
+
+由于这两个文件体积较大，GitHub 普通仓库无法直接承载它们的 Git 历史版本，因此当前项目采用 **Release 附件分发模型文件** 的方式。
+
+你可以在对应版本的 Release 页面同时下载：
+
+- `app-release.apk`
+- `hubert.onnx`
+- `rmvpe.onnx`
+
+如需本地自行构建，请先将上述两个文件放入 `assets/models/`。
+
+### 🏃 独立推理进程
+
+离线推理与部分实时能力运行在独立 `:inference` 进程中，以降低主进程被长任务拖死的概率。
+
+### 💾 可恢复工作区
+
+离线音频推理与变声器处理都已具备“写盘恢复”能力，而不是只靠内存状态硬撑。
+
+---
+
+## 📦 模型与索引说明
+
+### 🎭 音色模型格式
+
+当前移动端实际使用的是：
+
+- **`.onnx` 音色模型**
+
+> 这里不是直接 `.pth` 作为运行模型。
+
+### 🪄 RVC v2 `.pth` 转 `.onnx`
+
+如果你的模型目前还是 RVC v2 的 `.pth`：
+
+- 一般 RVC 整合包本身都带有 **`.pth` → `.onnx`** 的导出能力
+- 本仓库**不再重复提供**这部分转换脚本
+- 建议直接在你常用的 RVC 整合包中完成导出，再把 `.onnx` 拿到手机端使用
+
+也就是说，本仓库重点处理的是：
+
+- **移动端推理运行**
+- **移动端索引使用**
+
+而不是桌面端训练/导出整套流程。
+
+---
+
+## 🔄 `mobile.index` 转换说明
+
+手机端当前实际使用的是：
+
+- **`mobile.index`**
+
+标准 RVC / FAISS `.index` 需要先转换后再导入。
+
+### 转换命令
+
+在仓库目录执行：
+
+```bash
+python3 python/convert_faiss_index.py input.index output.mobile.index
+```
+
+### 说明
+
+- 输入：标准 `.index`
+- 输出：`output.mobile.index`
+- 转换完成后，把生成的 `mobile.index` 拷到手机，再在 App 中选择即可
+
+### 如果不会转怎么办
+
+如果你本地环境不方便折腾，最省事的做法其实是：
+
+- 把这个仓库地址
+- 把你的 `.index` 使用需求
+- 直接丢给 AI
+
+让 AI 帮你把命令、环境、路径一次性跑通。
+
+---
+
+## 📱 Android 权限与使用前提
+
+项目当前依赖的核心权限包括：
+
+- 麦克风权限
+- 读取媒体音频权限
+- 悬浮窗权限
+- 前台服务权限
+- 振动权限
+
+其中：
+
+- **变声器模式**没有悬浮窗权限就无法正常工作
+- **实时推理 / 分贝仪 / 录音输入**没有麦克风权限就无法正常工作
+
+---
+
+## 🧪 当前限制与已知定位
+
+当前版本的实际定位与限制如下：
+
+- 当前实际完成度最高的是 **Android 版本**
+- 实时推理当前是**演示定位**，不建议当作稳定生产功能使用
+- 当前移动端实际运行模型是 **`.onnx`**，不是直接 `.pth`
+- 当前索引使用的是 **`mobile.index`**，不是把桌面端 `.index` 原样塞进来就能直接用
+
+---
+
+## 🛠️ 开发环境
+
+### Flutter
+
+```bash
+flutter pub get
+flutter build apk --release
+```
+
+### Android
+
+- Java 17
+- Android SDK
+- Gradle
+
+### 主要依赖
+
+- Flutter 3.x
+- Android 原生 Kotlin
+- ONNX Runtime
+- `audioplayers`
+- `share_plus`
+- `file_picker`
+- `permission_handler`
+
+---
+
+## 📥 Release 与 APK
+
+发布页分为两类：
+
+- **应用发布页**：提供已经打包好基础模型的 `app-release.apk`
+- **模型发布页**：提供 `hubert.onnx` 与 `rmvpe.onnx`
+
+如果你只是安装使用 App，直接下载应用发布页里的 APK 即可。\
+如果你要二次开发，或者要在本地自行编译仓库，请再下载模型发布页中的基础模型，并放入 `assets/models/`。
+
+---
+
+## 🤖 二次开发建议
+
+如果你想在这个项目上继续做功能、修逻辑、改 UI、改推理流程，强烈建议直接让 AI 先跑通：
+
+- **OpenCode**
+- **Codex**
+- **Claude Code**
+
+原因很简单：
+
+- 这个项目同时涉及 Flutter、Android Kotlin、音频链路、文件工作区、悬浮窗、独立进程和导出逻辑
+- 很多修改并不是单点改 UI，而是要跨 Dart / Kotlin / 文件系统一起收口
+
+所以最省时间的方式通常是：
+
+1. 把仓库给 AI
+2. 把你要改的能力讲清楚
+3. 让 AI 先把工程跑起来并定位关键文件
+
+> ℹ️ 单独的模型发布页主要用于**二次开发**或**本地自行编译本仓库**。正式发布的 APK 会直接打包这两个基础模型。
+
+### 关于 `index` 转换
+
+如果 `mobile.index` 转换你本地总是失败：
+
+- 也建议直接把仓库地址 + 报错 + 你的 `.index` 场景丢给 AI
+- 让 AI 帮你把转换命令、环境和输出路径一起跑通
+
+---
+
+## 🧾 为什么这个仓库要转成独立项目
+
+这个项目的来源需要说明清楚：
+
+- 早期曾参考过一个更早的同名仓库结构
+- 但那个旧仓库当时实际上只是一个**没有任何实际功能的空壳待开发项目**，并不具备现在这些可用的推理、恢复、悬浮窗、导出与工具能力
+- 后续绝大多数实际功能，都是在当前这份工程里逐步补齐、重构并落地完成的
+- 与此同时，最早的原始上游仓库后来也已经被删除
+
+基于这个背景，这里不再以 fork 形式延续，而是将当前代码整理为一个独立仓库，原因很明确：
+
+- 当前可运行、可发布、可维护的主体能力，已经存在于这份代码本身
+- 继续挂在已经失效的旧仓库历史之下，不利于版本管理、问题追踪与后续发布
+- 以独立项目形式整理后，更适合围绕现有实现继续维护、发布与二次开发
+
+### 🔗 历史来源与残留引用说明
+
+虽然原始仓库已删除，但项目里仍保留了一些历史引用信息。这里一并列出，作为来源说明与致意：
+
+- 旧远端地址（已失效历史来源之一）：`https://github.com/JackismyShephard/ultimate-rvc-mobile`
+- 当前整理前使用过的托管地址：`https://github.com/hamzahtime1-pixel/ultimate-rvc-mobile`
+
+这些链接保留下来，不代表当前仓库继续作为它们的 fork 维护，而是用于说明这份工程的历史来源脉络。
+
+---
+
+## 📄 License
+
+本仓库沿用开源许可证，详见：
+
+- [LICENSE](./LICENSE)
+
+---
+
+<div align="center">
+
+**如果你要的是一个已经把 Android 端本地 RVC 链路真正做出来、还能继续往前迭代的移动端工程，这个仓库就是为这个目标整理出来的。**
+
+</div>

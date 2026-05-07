@@ -9,8 +9,8 @@ import sys
 import json
 import time
 import queue
-import threading
-from pathlib import Path
+import wave
+import struct
 from typing import Dict, Any, Optional
 import logging
 
@@ -36,6 +36,65 @@ def update_progress(percent: int, eta: int = 0, current_step: str = ""):
 def get_progress() -> Dict[str, Any]:
     """Get current progress"""
     return current_progress
+
+def _clamp(value: float, minimum: float, maximum: float) -> float:
+    return max(minimum, min(maximum, value))
+
+def _read_wav_mono(path: str):
+    with wave.open(path, "rb") as wav_file:
+        channels = wav_file.getnchannels()
+        sample_width = wav_file.getsampwidth()
+        sample_rate = wav_file.getframerate()
+        frames = wav_file.readframes(wav_file.getnframes())
+
+    if sample_width != 2:
+        raise ValueError("Only 16-bit WAV input is supported by the mobile fallback engine")
+
+    samples = struct.unpack(f"<{len(frames) // 2}h", frames)
+    if channels == 1:
+        return list(samples), sample_rate
+
+    mono = []
+    for index in range(0, len(samples), channels):
+        mono.append(int(sum(samples[index:index + channels]) / channels))
+    return mono, sample_rate
+
+def _write_wav_mono(path: str, samples, sample_rate: int):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    packed = bytearray()
+    for sample in samples:
+        packed.extend(int(_clamp(sample, -32768, 32767)).to_bytes(2, byteorder="little", signed=True))
+
+    with wave.open(path, "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(bytes(packed))
+
+def _convert_audio_fallback(song_path: str, output_path: str, pitch_change: float,
+                            index_rate: float, rms_mix_rate: float, protect_rate: float):
+    samples, sample_rate = _read_wav_mono(song_path)
+    if not samples:
+        raise ValueError("Input audio is empty")
+
+    pitch_factor = 2 ** (pitch_change / 12.0)
+    index_rate = _clamp(index_rate, 0.0, 1.0)
+    rms_mix_rate = _clamp(rms_mix_rate, 0.0, 1.0)
+    protect_rate = _clamp(protect_rate, 0.0, 1.0)
+    converted = []
+
+    for output_index in range(len(samples)):
+        source_position = output_index * pitch_factor
+        left_index = int(source_position) % len(samples)
+        right_index = (left_index + 1) % len(samples)
+        fraction = source_position - int(source_position)
+        shifted = samples[left_index] * (1 - fraction) + samples[right_index] * fraction
+        shaped = shifted * (0.65 + 0.35 * index_rate)
+        mixed = shaped * (1 - rms_mix_rate) + samples[output_index] * rms_mix_rate
+        protected = mixed * (1 - protect_rate) + samples[output_index] * protect_rate
+        converted.append(protected)
+
+    _write_wav_mono(output_path, converted, sample_rate)
 
 def download_models(model_dir: str) -> bool:
     """Download required models lazily"""
@@ -70,9 +129,10 @@ def download_models(model_dir: str) -> bool:
         update_progress(0, 0, f"Download failed: {str(e)}")
         return False
 
-def infer_rvc(song_path: str, model_path: str, pitch_change: str = "0", 
-                index_rate: str = "0.75", filter_radius: str = "3", 
-                rms_mix_rate: str = "0.25", protect_rate: str = "0.33") -> str:
+def infer_rvc(song_path: str, model_path: str, pitch_change: str = "0",
+                index_rate: str = "0.75", filter_radius: str = "3",
+                rms_mix_rate: str = "0.25", protect_rate: str = "0.33",
+                output_dir: Optional[str] = None) -> str:
     """
     Main RVC inference function
     
@@ -97,46 +157,15 @@ def infer_rvc(song_path: str, model_path: str, pitch_change: str = "0",
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Voice model not found: {model_path}")
         
-        update_progress(10, 55, "Initializing RVC pipeline")
-        
-        # Initialize RVC components
-        # This would include:
-        # 1. Load Hubert model for feature extraction
-        # 2. Load RMVPE for F0 estimation
-        # 3. Load target voice model
-        # 4. Set up feature retrieval
-        
-        update_progress(20, 50, "Extracting audio features")
-        
-        # Feature extraction with Hubert
-        # Audio preprocessing, normalization, etc.
-        time.sleep(2)  # Simulate processing
-        
-        update_progress(40, 30, "Estimating pitch and converting")
-        
-        # F0 estimation with RMVPE/CREPE
-        # Pitch conversion and voice transformation
-        time.sleep(3)  # Simulate processing
-        
-        update_progress(70, 15, "Post-processing audio")
-        
-        # Post-processing and audio synthesis
-        # Apply filters, mixing, etc.
-        time.sleep(2)  # Simulate processing
-        
-        update_progress(90, 5, "Saving output")
-        
-        # Generate output path
-        output_dir = os.path.dirname(song_path)
-        output_filename = f"rvc_output_{int(time.time())}.wav"
-        output_path = os.path.join(output_dir, output_filename)
-        
-        # Simulate audio generation
-        time.sleep(1)
-        
-        update_progress(100, 0, "Conversion completed successfully")
-        
-        return output_path
+        pitch_value = float(pitch_change)
+        index_value = float(index_rate)
+        int(filter_radius)
+        rms_value = float(rms_mix_rate)
+        protect_value = float(protect_rate)
+
+        del pitch_value, index_value, rms_value, protect_value, output_dir
+
+        raise RuntimeError("ONNX Runtime Mobile inference engine is not implemented")
         
     except Exception as e:
         logger.error(f"RVC inference failed: {e}")
@@ -161,12 +190,24 @@ def main():
             song_path = sys.argv[2]
             model_path = sys.argv[3]
             
-            # Optional parameters
             pitch_change = sys.argv[4] if len(sys.argv) > 4 else "0"
             index_rate = sys.argv[5] if len(sys.argv) > 5 else "0.75"
+            filter_radius = sys.argv[6] if len(sys.argv) > 6 else "3"
+            rms_mix_rate = sys.argv[7] if len(sys.argv) > 7 else "0.25"
+            protect_rate = sys.argv[8] if len(sys.argv) > 8 else "0.33"
+            output_dir = sys.argv[9] if len(sys.argv) > 9 else None
             
             try:
-                result = infer_rvc(song_path, model_path, pitch_change, index_rate)
+                result = infer_rvc(
+                    song_path,
+                    model_path,
+                    pitch_change,
+                    index_rate,
+                    filter_radius,
+                    rms_mix_rate,
+                    protect_rate,
+                    output_dir,
+                )
                 print(f"SUCCESS:{result}")
                 sys.exit(0)
             except Exception as e:

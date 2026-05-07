@@ -10,7 +10,7 @@
 -keep class crepe.** { *; }
 -keep class rmvpe.** { *; }
 -keep class faiss.** { *; }
--keep class onnxruntime.** { *; }
+-keep class ai.onnxruntime.** { *; }
 -keep class omegaconf.** { *; }
 -keep class hydra.** { *; }
 -keep class sklearn.** { *; }
@@ -55,7 +55,7 @@
 -dontwarn crepe.**
 -dontwarn rmvpe.**
 -dontwarn faiss.**
--dontwarn onnxruntime.**
+-dontwarn ai.onnxruntime.**
 -dontwarn omegaconf.**
 -dontwarn hydra.**
 -dontwarn sklearn.**

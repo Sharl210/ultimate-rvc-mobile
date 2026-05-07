@@ -18,19 +18,19 @@ logger = logging.getLogger(__name__)
 # Model URLs and checksums
 MODELS_MANIFEST = {
     "hubert_base.pt": {
-        "url": "https://huggingface.co/lllyasviel/Hubert/resolve/main/hubert_base.pt",
-        "sha256": "a7c0a7c6e1a1c4b8b9b9b9b9b9b9b9b9b9b9b9b9b9b9b9b9b9b9b9b9b9b9b9b",
-        "size": 180000000  # ~180MB
+        "url": "https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/hubert_base.pt",
+        "sha256": "f54b40fd2802423a5643779c4861af1e9ee9c1564dc9d32f54f20b5ffba7db96",
+        "size": 189507909
     },
     "rmvpe.pt": {
         "url": "https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/rmvpe.pt",
-        "sha256": "b8c0b8c7e2b2c5c9c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0",
-        "size": 170000000  # ~170MB
+        "sha256": "6d62215f4306e3ca278246188607209f09af3dc77ed4232efdd069798c4ec193",
+        "size": 181068963
     },
     "pretraineds/f0D40k.pth": {
-        "url": "https://huggingface.co/lllyasviel/RVC/resolve/main/pretrained/f0D40k.pth",
-        "sha256": "c9c0c9c8e3b3c6d0d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1",
-        "size": 50000000   # ~50MB
+        "url": "https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/pretrained_v2/f0D40k.pth",
+        "sha256": "6b6ab091e70801b28e3f41f335f2fc5f3f35c75b39ae2628d419644ec2b0fa09",
+        "size": 142875703
     }
 }
 
@@ -120,11 +120,18 @@ def download_models(models_dir: str, force_download: bool = False,
             overall_progress = (i / total_models) * 100
             progress_callback(overall_progress, f"Downloading {model_name}")
         
+        file_progress_callback = None
+        if progress_callback:
+            file_progress_callback = lambda p: progress_callback(
+                (i + p / 100) / total_models * 100,
+                f"Downloading {model_name}",
+            )
+
         success = download_file(
-            model_info["url"], 
-            model_path, 
+            model_info["url"],
+            model_path,
             model_info["size"],
-            lambda p: progress_callback((i + p/100) / total_models * 100, f"Downloading {model_name}")
+            file_progress_callback,
         )
         
         # Verify checksum

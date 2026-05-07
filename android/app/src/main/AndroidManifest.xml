@@ -1,20 +1,26 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     
-    <!-- Internet permission for downloading models -->
-    <uses-permission android:name="android.permission.INTERNET" />
-    
     <!-- Storage permissions for file access -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" 
                      android:maxSdkVersion="28" />
     
     <!-- Audio permissions -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.VIBRATE" />
     
     <application
         android:label="Ultimate RVC Mobile"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
+        android:hardwareAccelerated="true"
+        android:largeHeap="true"
         android:requestLegacyExternalStorage="true">
         
         <activity
@@ -40,6 +46,14 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <service
+            android:name=".VoiceChangerOverlayService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+        <service
+            android:name=".InferenceProcessService"
+            android:exported="false"
+            android:process=":inference" />
         
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
@@ -47,14 +61,8 @@
             android:name="flutterEmbedding"
             android:value="2" />
         
-        <!-- Chaquopy Python configuration -->
-        <meta-data
-            android:name="chaquopy.app.libname"
-            android:value="main" />
-        
     </application>
     
-    <!-- Required for some Python packages -->
     <uses-feature
         android:name="android.hardware.touchscreen"
         android:required="false" />
