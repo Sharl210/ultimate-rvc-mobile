@@ -15,6 +15,7 @@ import 'screens/parameter_guide_screen.dart';
 import 'screens/realtime_inference_screen.dart';
 import 'screens/voice_changer_screen.dart';
 import 'screens/decibel_meter_screen.dart';
+import 'screens/pitch_detection_screen.dart';
 import 'services/rvc_bridge.dart';
 
 void main() {
@@ -288,6 +289,19 @@ class _MainScreenState extends State<MainScreen> {
     _pendingOutputDeletionPath = path;
   }
 
+  String? _previewableResultPath() {
+    if (_generatedOutputPath != null && _generatedOutputPath!.isNotEmpty) {
+      return _generatedOutputPath;
+    }
+    if (_pendingOutputDeletionPath != null && _pendingOutputDeletionPath!.isNotEmpty) {
+      final pendingFile = File(_pendingOutputDeletionPath!);
+      if (pendingFile.existsSync()) {
+        return _pendingOutputDeletionPath;
+      }
+    }
+    return null;
+  }
+
   void _setAudioStep(int index, {required bool animate}) {
     setState(() => _audioStepIndex = index);
     _saveState();
@@ -317,7 +331,7 @@ class _MainScreenState extends State<MainScreen> {
     return index == 0 ||
         (index == 1 && _selectedSongPath != null) ||
         (index == 2 && _selectedSongPath != null && _selectedModelPath != null) ||
-        (index == 3 && _generatedOutputPath != null);
+        (index == 3 && _previewableResultPath() != null);
   }
 
   void _handleAudioHorizontalDragUpdate(DragUpdateDetails details) {
@@ -549,6 +563,12 @@ class _MainScreenState extends State<MainScreen> {
     _scaffoldKey.currentState?.closeDrawer();
   }
 
+  void _openPitchDetection() {
+    setState(() => _moduleIndex = 6);
+    _saveState();
+    _scaffoldKey.currentState?.closeDrawer();
+  }
+
   Drawer _buildDrawer() {
     return Drawer(
       child: ListView(
@@ -579,10 +599,16 @@ class _MainScreenState extends State<MainScreen> {
             onTap: _openVoiceChanger,
           ),
           ListTile(
-            leading: Icon(Icons.sync_alt),
-            title: Text('mobile.index 转换教程'),
-            selected: _moduleIndex == 3,
-            onTap: _openIndexConverter,
+            leading: Icon(Icons.speed),
+            title: Text('分贝仪'),
+            selected: _moduleIndex == 5,
+            onTap: _openDecibelMeter,
+          ),
+          ListTile(
+            leading: Icon(Icons.multitrack_audio),
+            title: Text('音高检测'),
+            selected: _moduleIndex == 6,
+            onTap: _openPitchDetection,
           ),
           ListTile(
             leading: Icon(Icons.tune),
@@ -591,12 +617,12 @@ class _MainScreenState extends State<MainScreen> {
             onTap: _openParameterGuide,
           ),
           ListTile(
-            leading: Icon(Icons.speed),
-            title: Text('分贝仪'),
-            selected: _moduleIndex == 5,
-            onTap: _openDecibelMeter,
+            leading: Icon(Icons.sync_alt),
+            title: Text('mobile.index 转换教程'),
+            selected: _moduleIndex == 3,
+            onTap: _openIndexConverter,
           ),
-          ],
+           ],
       ),
     );
   }
@@ -604,6 +630,7 @@ class _MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
     final canGenerate = _selectedSongPath != null && _selectedModelPath != null;
+    final previewableResultPath = _previewableResultPath();
     final audioScreens = [
       SongPickerScreen(
         onSongSelected: _onSongSelected,
@@ -641,10 +668,10 @@ class _MainScreenState extends State<MainScreen> {
               selectedSongPath: _selectedSongPath,
               selectedSongDisplayName: _selectedSongDisplayName,
             ),
-      _generatedOutputPath != null
+      previewableResultPath != null
           ? ResultScreen(
-              outputPath: _generatedOutputPath!,
-              generationDuration: _generationDuration,
+              outputPath: previewableResultPath,
+              generationDuration: _generatedOutputPath == previewableResultPath ? _generationDuration : null,
               onNewGeneration: _startNewGeneration,
             )
           : SongPickerScreen(
@@ -667,7 +694,7 @@ class _MainScreenState extends State<MainScreen> {
         ),
       ),
       RealtimeInferenceScreen(
-        otherModeRunning: _generationState.isGenerating || (_inferenceProcessRunning && !_realtimeInferenceRunning),
+        otherModeRunning: _generationState.isGenerating,
         onRunningChanged: _onRealtimeInferenceRunningChanged,
       ),
       VoiceChangerScreen(
@@ -677,6 +704,7 @@ class _MainScreenState extends State<MainScreen> {
       IndexConverterScreen(),
       ParameterGuideScreen(),
       DecibelMeterScreen(isActive: _moduleIndex == 5),
+      PitchDetectionScreen(isActive: _moduleIndex == 6),
     ];
 
     return PopScope(

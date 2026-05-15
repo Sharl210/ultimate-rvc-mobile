@@ -233,10 +233,6 @@ class _VoiceChangerScreenState extends State<VoiceChangerScreen> {
     }
   }
 
-  String? _lastVoiceChangerInputPath() {
-    return _lastVoiceChangerInputPathValue;
-  }
-
   Future<void> _pickModel() async {
     final result = await FilePicker.platform.pickFiles(type: FileType.any, allowMultiple: false);
     final filePath = result?.files.single.path;

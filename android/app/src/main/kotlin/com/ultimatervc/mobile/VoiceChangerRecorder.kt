@@ -434,8 +434,13 @@ class VoiceChangerRecorder(
     }
 
     private fun processingOutputFileFor(input: File): File {
+        return File(workspaceRoot, processedOutputFileName(input))
+    }
+
+    private fun processedOutputFileName(input: File): String {
         val inputName = input.nameWithoutExtension.ifBlank { "recording_${readableTimestamp()}" }
-        return File(workspaceRoot, "$inputName.rvc.wav")
+        val modelName = File(config.modelPath).nameWithoutExtension.ifBlank { "model" }
+        return "${inputName}_[${modelName}].rvc.wav"
     }
 
     private fun loadManifest(): org.json.JSONObject? {

@@ -56,11 +56,32 @@ class ImportedFileHandle {
   }
 }
 
+class PitchDetectionSnapshot {
+  final double frequencyHz;
+  final double confidence;
+  final String note;
+
+  const PitchDetectionSnapshot({
+    required this.frequencyHz,
+    required this.confidence,
+    required this.note,
+  });
+
+  factory PitchDetectionSnapshot.fromMap(Map<String, dynamic> map) {
+    return PitchDetectionSnapshot(
+      frequencyHz: (map['frequencyHz'] as num?)?.toDouble() ?? 0.0,
+      confidence: (map['confidence'] as num?)?.toDouble() ?? 0.0,
+      note: (map['note'] as String?) ?? '—',
+    );
+  }
+}
+
 class RVCBridge {
   static const MethodChannel _channel = MethodChannel('ultimate_rvc');
   static const EventChannel _progressChannel = EventChannel('ultimate_rvc_progress');
   static const EventChannel _realtimeChannel = EventChannel('ultimate_rvc_realtime_status');
   static const EventChannel _decibelChannel = EventChannel('ultimate_rvc_decibel');
+  static const EventChannel _pitchChannel = EventChannel('ultimate_rvc_pitch');
 
   Stream<Map<String, dynamic>>? _progressStream;
   final StreamController<InferenceProgressSnapshot> _progressSnapshots =
@@ -297,6 +318,10 @@ class RVCBridge {
 
   Stream<double> decibelStream() {
     return _decibelChannel.receiveBroadcastStream().map((data) => (data as num).toDouble());
+  }
+
+  Stream<Map<String, dynamic>> pitchStream() {
+    return _pitchChannel.receiveBroadcastStream().map((data) => Map<String, dynamic>.from(data as Map));
   }
 
   Future<void> startRecording() async {

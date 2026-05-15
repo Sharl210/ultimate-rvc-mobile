@@ -47,9 +47,11 @@ class RVCPlugin : FlutterPlugin, MethodCallHandler, StreamHandler {
     private lateinit var progressChannel: EventChannel
     private lateinit var realtimeStatusChannel: EventChannel
     private lateinit var decibelChannel: EventChannel
+    private lateinit var pitchChannel: EventChannel
     private var progressEventSink: EventSink? = null
     private var realtimeEventSink: EventSink? = null
     private var decibelSession: DecibelMeterSession? = null
+    private var pitchSession: PitchDetectionSession? = null
     private var recorder: MediaRecorder? = null
     private var pcmRecorderSession: PcmRecorderSession? = null
     private var realtimeSession: RealtimeRvcSession? = null
@@ -70,6 +72,7 @@ class RVCPlugin : FlutterPlugin, MethodCallHandler, StreamHandler {
         progressChannel = EventChannel(flutterPluginBinding.binaryMessenger, "ultimate_rvc_progress")
         realtimeStatusChannel = EventChannel(flutterPluginBinding.binaryMessenger, "ultimate_rvc_realtime_status")
         decibelChannel = EventChannel(flutterPluginBinding.binaryMessenger, "ultimate_rvc_decibel")
+        pitchChannel = EventChannel(flutterPluginBinding.binaryMessenger, "ultimate_rvc_pitch")
         
         channel.setMethodCallHandler(this)
         progressChannel.setStreamHandler(this)
@@ -91,6 +94,15 @@ class RVCPlugin : FlutterPlugin, MethodCallHandler, StreamHandler {
                 stopDecibelMeter()
             }
         })
+        pitchChannel.setStreamHandler(object : StreamHandler {
+            override fun onListen(arguments: Any?, events: EventSink?) {
+                startPitchDetection(events)
+            }
+
+            override fun onCancel(arguments: Any?) {
+                stopPitchDetection()
+            }
+        })
         
     }
 
@@ -107,7 +119,9 @@ class RVCPlugin : FlutterPlugin, MethodCallHandler, StreamHandler {
         progressChannel.setStreamHandler(null)
         realtimeStatusChannel.setStreamHandler(null)
         decibelChannel.setStreamHandler(null)
+        pitchChannel.setStreamHandler(null)
         stopDecibelMeter()
+        stopPitchDetection()
         scope.cancel()
     }
 
@@ -925,6 +939,17 @@ class RVCPlugin : FlutterPlugin, MethodCallHandler, StreamHandler {
         decibelSession = null
     }
 
+    private fun startPitchDetection(events: EventSink?) {
+        stopPitchDetection()
+        if (events == null) return
+        pitchSession = PitchDetectionSession { payload -> runOnMain { events.success(payload) } }.also { it.start() }
+    }
+
+    private fun stopPitchDetection() {
+        pitchSession?.stop()
+        pitchSession = null
+    }
+
     private class RootPerformanceException(val code: String, message: String) : Exception(message)
 
     private class RealtimeRvcSession(
@@ -1008,6 +1033,146 @@ class RVCPlugin : FlutterPlugin, MethodCallHandler, StreamHandler {
             val decibel = 20.0 * kotlin.math.log10(rms.coerceAtLeast(1.0))
             return if (decibel.isFinite()) decibel.coerceAtLeast(0.0) else 0.0
         }
+    }
+
+    private class PitchDetectionSession(private val sendPitch: (Map<String, Any>) -> Unit) {
+        private val bufferSize = maxOf(
+            AudioRecord.getMinBufferSize(REALTIME_SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT),
+            REALTIME_MIN_BUFFER_FRAMES * BYTES_PER_PCM_16,
+        )
+        private val audioBuffer = ShortArray(bufferSize / BYTES_PER_PCM_16)
+        private var running = false
+        private var worker: Job? = null
+        private val audioRecord = AudioRecord(
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            REALTIME_SAMPLE_RATE,
+            AudioFormat.CHANNEL_IN_MONO,
+            AudioFormat.ENCODING_PCM_16BIT,
+            bufferSize,
+        )
+
+        fun start() {
+            require(audioRecord.state == AudioRecord.STATE_INITIALIZED) { "无法初始化音高检测输入设备" }
+            running = true
+            audioRecord.startRecording()
+            worker = CoroutineScope(Dispatchers.Default).launch {
+                try {
+                    while (running) {
+                        val read = audioRecord.read(audioBuffer, 0, audioBuffer.size)
+                        if (read > 0) {
+                            val estimate = estimateFrequencyHz(read)
+                            val note = frequencyToNote(estimate.frequencyHz)
+                            sendPitch(
+                                mapOf(
+                                    "frequencyHz" to estimate.frequencyHz,
+                                    "confidence" to estimate.confidence,
+                                    "note" to note,
+                                ),
+                            )
+                        }
+                    }
+                } finally {
+                    stop()
+                }
+            }
+        }
+
+        fun stop() {
+            if (!running) return
+            running = false
+            runCatching { audioRecord.stop() }
+            audioRecord.release()
+        }
+
+        private fun estimateFrequencyHz(read: Int): PitchEstimate {
+            var energy = 0.0
+            var mean = 0.0
+            for (index in 0 until read) {
+                val sample = audioBuffer[index].toInt()
+                energy += sample * sample.toDouble()
+                mean += sample.toDouble()
+            }
+            val rms = sqrt(energy / read.coerceAtLeast(1))
+            if (rms < 18.0) return PitchEstimate(0.0, 0.0)
+
+            mean /= read.coerceAtLeast(1)
+            val frame = FloatArray(read) { index -> (audioBuffer[index] - mean).toFloat() }
+            val difference = differenceFunction(frame)
+            val cmnd = cumulativeMeanNormalizedDifference(difference)
+            val tau = absoluteThreshold(cmnd)
+            if (tau <= 0) return PitchEstimate(0.0, 0.0)
+            val betterTau = parabolicInterpolation(cmnd, tau)
+            if (betterTau <= 0.0) return PitchEstimate(0.0, 0.0)
+            val frequency = REALTIME_SAMPLE_RATE / betterTau
+            val confidence = (1.0 - cmnd[tau]).coerceIn(0.0, 1.0)
+            return if (frequency in 50.0..1200.0 && confidence >= 0.55) {
+                PitchEstimate(frequency, confidence)
+            } else {
+                PitchEstimate(0.0, confidence)
+            }
+        }
+
+        private fun differenceFunction(frame: FloatArray): DoubleArray {
+            val maxTau = frame.size / 2
+            val difference = DoubleArray(maxTau)
+            for (tau in 1 until maxTau) {
+                var sum = 0.0
+                for (index in 0 until maxTau) {
+                    val delta = frame[index] - frame[index + tau]
+                    sum += delta * delta
+                }
+                difference[tau] = sum
+            }
+            return difference
+        }
+
+        private fun cumulativeMeanNormalizedDifference(difference: DoubleArray): DoubleArray {
+            val cmnd = DoubleArray(difference.size)
+            cmnd[0] = 1.0
+            var runningSum = 0.0
+            for (tau in 1 until difference.size) {
+                runningSum += difference[tau]
+                cmnd[tau] = if (runningSum == 0.0) 1.0 else difference[tau] * tau / runningSum
+            }
+            return cmnd
+        }
+
+        private fun absoluteThreshold(cmnd: DoubleArray): Int {
+            for (tau in MIN_YIN_TAU until cmnd.size) {
+                if (cmnd[tau] < YIN_THRESHOLD) {
+                    var candidate = tau
+                    while (candidate + 1 < cmnd.size && cmnd[candidate + 1] < cmnd[candidate]) {
+                        candidate++
+                    }
+                    return candidate
+                }
+            }
+            return -1
+        }
+
+        private fun parabolicInterpolation(cmnd: DoubleArray, tau: Int): Double {
+            if (tau <= 0 || tau >= cmnd.lastIndex) return tau.toDouble()
+            val x0 = cmnd[tau - 1]
+            val x1 = cmnd[tau]
+            val x2 = cmnd[tau + 1]
+            val denominator = (2 * x1) - x2 - x0
+            if (denominator == 0.0) return tau.toDouble()
+            return tau + (x2 - x0) / (2.0 * denominator)
+        }
+
+        private fun frequencyToNote(frequency: Double): String {
+            if (frequency <= 0.0) return "—"
+            val noteNames = arrayOf("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
+            val midi = (69 + 12 * kotlin.math.log2(frequency / 440.0)).roundToInt()
+            val noteName = noteNames[Math.floorMod(midi, noteNames.size)]
+            val octave = (midi / 12) - 1
+            return "$noteName$octave"
+        }
+
+        private data class PitchEstimate(
+            val frequencyHz: Double,
+            val confidence: Double,
+        )
     }
 
     private data class RootCommandResult(
@@ -1453,6 +1618,8 @@ class RVCPlugin : FlutterPlugin, MethodCallHandler, StreamHandler {
         const val REALTIME_HOP_MS = 40
         const val REALTIME_OUTPUT_STARTUP_HOPS = 2
         const val REALTIME_PROCESS_POLL_MS = 10L
+        const val YIN_THRESHOLD = 0.12
+        const val MIN_YIN_TAU = 40
         const val ROOT_PERFORMANCE_REAPPLY_INTERVAL_MS = 300L
         const val ROOT_LOCK_MODE = "444"
         const val ROOT_UNLOCK_MODE = "644"

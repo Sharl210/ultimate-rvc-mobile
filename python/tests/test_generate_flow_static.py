@@ -9,6 +9,8 @@ BRIDGE = ROOT / 'lib/services/rvc_bridge.dart'
 PLUGIN = ROOT / 'android/app/src/main/kotlin/com/ultimatervc/mobile/RVCPlugin.kt'
 MODE_GUARD = ROOT / 'android/app/src/main/kotlin/com/ultimatervc/mobile/NativeModeGuard.kt'
 PUBSPEC = ROOT / 'pubspec.yaml'
+ENGINE = ROOT / 'android/app/src/main/kotlin/com/ultimatervc/mobile/RvcInferenceEngine.kt'
+PY_RVC = ROOT / 'python/ultimate_rvc/rvc_inference.py'
 
 
 def test_generate_screen_persists_parameters_and_has_reset_defaults_button():
@@ -176,3 +178,26 @@ def test_generate_screen_exposes_continue_unfinished_and_clears_cache_before_fre
     assert '"importPickedFile" -> importPickedFile(call, result)' in plugin_source
     assert '"releaseImportedFile" -> releaseImportedFile(call, result)' in plugin_source
     assert '"clearTempWorkspace" -> clearTempWorkspace(call, result)' in plugin_source
+
+
+def test_main_keeps_previous_result_preview_available_while_regenerating():
+    source = MAIN.read_text(encoding='utf-8')
+
+    assert 'String? _previewableResultPath()' in source
+    assert '_pendingOutputDeletionPath' in source
+    assert 'final previewableResultPath = _previewableResultPath();' in source
+    assert '(index == 3 && _previewableResultPath() != null)' in source
+    assert 'previewableResultPath != null' in source
+    assert 'outputPath: previewableResultPath,' in source
+    assert '_generatedOutputPath = null;' not in source[source.index('void _startNewGeneration()'):source.index('  void _onRealtimeInferenceRunningChanged')]
+
+
+def test_offline_inference_output_name_includes_model_name():
+    engine = ENGINE.read_text(encoding='utf-8')
+    py_rvc = PY_RVC.read_text(encoding='utf-8')
+
+    assert 'private fun rvcOutputFileName(input: File, model: File): String' in engine
+    assert '"${inputBase}_[${modelBase}].rvc.wav"' in engine
+    assert 'val outputPath = File(finalOutputDir, rvcOutputFileName(songFile, voiceModelFile))' in engine
+    assert 'songFile.nameWithoutExtension + ".rvc.wav"' not in engine
+    assert "f'{input_base}_[{model_base}].rvc.wav'" in py_rvc

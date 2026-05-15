@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/rvc_bridge.dart';
 
@@ -20,23 +23,25 @@ class ResultScreen extends StatefulWidget {
   State<ResultScreen> createState() => _ResultScreenState();
 }
 
-class _ResultScreenState extends State<ResultScreen> with WidgetsBindingObserver {
+class _ResultScreenState extends State<ResultScreen> with AutomaticKeepAliveClientMixin {
   final AudioPlayer _audioPlayer = AudioPlayer();
   final RVCBridge _rvcBridge = RVCBridge();
+  static const String _resultPositionPrefix = 'resultPreviewPositionMs:';
   bool _isPlaying = false;
   bool _userPausedAudio = false;
   bool _playbackCompleted = false;
+  Timer? _positionPersistTimer;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     _requestSavePermission();
     _loadOutputAudioDuration();
     _audioPlayer.onPositionChanged.listen((position) {
       if (mounted) setState(() => _position = position);
+      _schedulePersistPlaybackPosition();
     });
     _audioPlayer.onDurationChanged.listen((duration) {
       if (mounted) setState(() => _duration = duration);
@@ -58,13 +63,50 @@ class _ResultScreenState extends State<ResultScreen> with WidgetsBindingObserver
           _position = Duration.zero;
         });
       }
+      _clearPlaybackPosition();
       _audioPlayer.seek(Duration.zero);
     });
   }
 
+  String _resultPositionKey() => '$_resultPositionPrefix${widget.outputPath}';
+
+  void _schedulePersistPlaybackPosition() {
+    _positionPersistTimer?.cancel();
+    _positionPersistTimer = Timer(const Duration(seconds: 1), () {
+      _persistPlaybackPosition();
+    });
+  }
+
+  Future<void> _persistPlaybackPosition() async {
+    if (_playbackCompleted) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_resultPositionKey(), _position.inMilliseconds);
+  }
+
+  Future<void> _restorePlaybackPosition() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedMs = prefs.getInt(_resultPositionKey()) ?? 0;
+    if (savedMs <= 0) return;
+    final restored = Duration(milliseconds: savedMs);
+    if (_duration > Duration.zero && restored >= _duration) {
+      await prefs.remove(_resultPositionKey());
+      return;
+    }
+    await _audioPlayer.seek(restored);
+    if (mounted) {
+      setState(() => _position = restored);
+    }
+  }
+
+  Future<void> _clearPlaybackPosition() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_resultPositionKey());
+  }
+
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
+    _positionPersistTimer?.cancel();
+    _persistPlaybackPosition();
     _audioPlayer.dispose();
     super.dispose();
   }
@@ -111,6 +153,7 @@ class _ResultScreenState extends State<ResultScreen> with WidgetsBindingObserver
   Future<void> _seek(double milliseconds) async {
     _playbackCompleted = false;
     await _audioPlayer.seek(Duration(milliseconds: milliseconds.round()));
+    await _persistPlaybackPosition();
   }
 
   Future<void> _loadOutputAudioDuration() async {
@@ -127,6 +170,7 @@ class _ResultScreenState extends State<ResultScreen> with WidgetsBindingObserver
       setState(() => _duration = (nativeDuration != null && nativeDuration > Duration.zero)
           ? nativeDuration
           : (duration ?? Duration.zero));
+      await _restorePlaybackPosition();
     }
   }
 
@@ -153,6 +197,7 @@ class _ResultScreenState extends State<ResultScreen> with WidgetsBindingObserver
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     return Scaffold(
       appBar: AppBar(
         title: Text('生成结果'),
@@ -236,4 +281,7 @@ class _ResultScreenState extends State<ResultScreen> with WidgetsBindingObserver
       ),
     );
   }
+
+  @override
+  bool get wantKeepAlive => true;
 }

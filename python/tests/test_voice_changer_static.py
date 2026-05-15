@@ -652,3 +652,13 @@ def test_recording_mode_reads_wav_sample_rate_and_resumes_existing_track():
     assert 'activeTrack.play()' in recorder
     toggle_source = recorder[recorder.index('fun togglePlayback()'):recorder.index('    fun playNormal()')]
     assert toggle_source.index('activeTrack.play()') < toggle_source.index('playOutput(deleteAfterPlayback = deleteAfterCurrentPlayback)')
+
+
+def test_voice_changer_processed_output_name_includes_model_name():
+    recorder = RECORDER.read_text(encoding='utf-8')
+
+    assert 'private fun processedOutputFileName(input: File): String' in recorder
+    assert 'val modelName = File(config.modelPath).nameWithoutExtension.ifBlank { "model" }' in recorder
+    assert '"${inputName}_[${modelName}].rvc.wav"' in recorder
+    assert 'return File(workspaceRoot, processedOutputFileName(input))' in recorder
+    assert '"$inputName.rvc.wav"' not in recorder

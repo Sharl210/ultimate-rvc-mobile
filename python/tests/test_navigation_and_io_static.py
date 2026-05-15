@@ -8,6 +8,7 @@ RESULT = ROOT / 'lib/screens/result_screen.dart'
 INDEX_CONVERTER = ROOT / 'lib/screens/index_converter_screen.dart'
 PARAMETER_GUIDE = ROOT / 'lib/screens/parameter_guide_screen.dart'
 DECIBEL_METER = ROOT / 'lib/screens/decibel_meter_screen.dart'
+PITCH = ROOT / 'lib/screens/pitch_detection_screen.dart'
 MODEL_PICKER = ROOT / 'lib/screens/model_picker_screen.dart'
 BRIDGE = ROOT / 'lib/services/rvc_bridge.dart'
 PLUGIN = ROOT / 'android/app/src/main/kotlin/com/ultimatervc/mobile/RVCPlugin.kt'
@@ -28,9 +29,11 @@ def test_main_uses_drawer_for_audio_conversion_and_mobile_index_pages():
     assert "import 'screens/parameter_guide_screen.dart';" in source
     assert "import 'screens/realtime_inference_screen.dart';" in source
     assert "import 'screens/decibel_meter_screen.dart';" in source
+    assert "import 'screens/pitch_detection_screen.dart';" in source
     assert "title: Text('音频推理')" in source
     assert "title: Text('实时推理')" in source
     assert "title: Text('分贝仪')" in source
+    assert "title: Text('音高检测')" in source
     assert "title: Text('音频转换')" not in source
     assert "title: Text('mobile.index 转换教程')" in source
     assert "title: Text('参数解释')" in source
@@ -45,6 +48,7 @@ def test_main_uses_drawer_for_audio_conversion_and_mobile_index_pages():
     assert 'RealtimeInferenceScreen(' in source
     assert 'VoiceChangerScreen(' in source
     assert 'DecibelMeterScreen(isActive: _moduleIndex == 5)' in source
+    assert 'PitchDetectionScreen(isActive: _moduleIndex == 6)' in source
 
 
 def test_audio_conversion_tabs_can_be_swiped_between_steps():
@@ -119,6 +123,7 @@ def test_drawer_navigation_closes_drawer_without_triggering_back_exit_confirmati
         '_openIndexConverter',
         '_openParameterGuide',
         '_openDecibelMeter',
+        '_openPitchDetection',
     ]:
         method_source = source[source.index(f'void {method}()'):source.index('  }', source.index(f'void {method}()'))]
         assert '_scaffoldKey.currentState?.closeDrawer();' in method_source
@@ -162,11 +167,11 @@ def test_main_cleans_replaced_app_owned_cache_recordings_and_previous_outputs():
     assert 'await _deleteOwnedPathIfNeeded(previousSongPath);' in source
     assert 'await _deleteOwnedPathIfNeeded(previousModelPath);' in source
     assert 'await _deleteOwnedPathIfNeeded(previousIndexPath);' in source
-    assert 'if (previousSongPath != path)' in source
+    assert 'if (previousSongPath != importedPath)' in source
     assert 'if (previousModelPath != path)' in source
     assert 'if (previousIndexPath != path)' in source
-    assert 'await _deleteOwnedPathIfNeeded(previousOutputPath);' in source
-    assert 'if (previousOutputPath != outputPath)' in source
+    assert '_queueOutputForDeletionAfterNextSuccess(previousOutputPath);' in source
+    assert 'if (outputToDelete != outputPath)' in source
     assert '_deleteOwnedPathIfNeeded(_selectedSongPath)' not in source[source.index('Future<void> _loadSavedState'):source.index('Future<void> _saveState')]
 
 
@@ -238,14 +243,12 @@ def test_result_screen_can_save_generated_audio_to_local_storage():
 def test_result_screen_has_playback_progress_slider():
     source = RESULT.read_text(encoding='utf-8')
 
-    assert 'with WidgetsBindingObserver' in source
-    assert 'WidgetsBinding.instance.addObserver(this);' in source
-    assert 'WidgetsBinding.instance.removeObserver(this);' in source
-    assert 'void didChangeAppLifecycleState(AppLifecycleState state)' in source
-    assert '_pauseForBackground();' in source
-    assert 'Future<void> _pauseForBackground() async' in source
-    assert 'await _audioPlayer.pause();' in source
-    assert '_isPlaying = false;' in source
+    assert 'with WidgetsBindingObserver' not in source
+    assert 'WidgetsBinding.instance.addObserver(this);' not in source
+    assert 'WidgetsBinding.instance.removeObserver(this);' not in source
+    assert 'void didChangeAppLifecycleState(AppLifecycleState state)' not in source
+    assert '_pauseForBackground();' not in source
+    assert 'Future<void> _pauseForBackground() async' not in source
     assert 'Duration _position = Duration.zero;' in source
     assert 'Duration _duration = Duration.zero;' in source
     assert '_audioPlayer.onPositionChanged.listen' in source
@@ -260,30 +263,117 @@ def test_result_screen_has_playback_progress_slider():
     assert "_formatDuration(_duration)" in source
 
 
+def test_audio_preview_playback_does_not_auto_pause_on_app_lifecycle_changes_and_persists_position():
+    source = SONG.read_text(encoding='utf-8')
+
+    assert "import 'package:shared_preferences/shared_preferences.dart';" in source
+    assert "static const String _previewPositionPrefix = 'audioPreviewPositionMs:';" in source
+    assert 'Timer? _positionPersistTimer;' in source
+    assert 'Future<void> _persistPlaybackPosition() async' in source
+    assert 'Future<void> _restorePlaybackPosition(String path) async' in source
+    assert 'prefs.setInt(_previewPositionKey(path), _position.inMilliseconds)' in source
+    assert 'prefs.getInt(_previewPositionKey(path))' in source
+    assert 'await _restorePlaybackPosition(path);' in source
+    assert 'await _persistPlaybackPosition();' in source
+    assert '_positionPersistTimer?.cancel();' in source
+    assert '_pauseForBackground' not in source
+    assert 'void didChangeAppLifecycleState(AppLifecycleState state)' not in source
+    assert 'WidgetsBinding.instance.addObserver(this);' not in source
+    assert 'WidgetsBinding.instance.removeObserver(this);' not in source
+    assert 'AppLifecycleState.inactive' not in source
+
+
+def test_result_playback_does_not_auto_pause_on_app_lifecycle_changes_and_persists_position():
+    source = RESULT.read_text(encoding='utf-8')
+
+    assert "import 'package:shared_preferences/shared_preferences.dart';" in source
+    assert "static const String _resultPositionPrefix = 'resultPreviewPositionMs:';" in source
+    assert 'Timer? _positionPersistTimer;' in source
+    assert 'Future<void> _persistPlaybackPosition() async' in source
+    assert 'Future<void> _restorePlaybackPosition() async' in source
+    assert 'prefs.setInt(_resultPositionKey(), _position.inMilliseconds)' in source
+    assert 'prefs.getInt(_resultPositionKey())' in source
+    assert 'await _restorePlaybackPosition();' in source
+    assert 'await _persistPlaybackPosition();' in source
+    assert '_positionPersistTimer?.cancel();' in source
+    assert '_pauseForBackground' not in source
+    assert 'void didChangeAppLifecycleState(AppLifecycleState state)' not in source
+    assert 'with WidgetsBindingObserver' not in source
+    assert 'WidgetsBinding.instance.addObserver(this);' not in source
+    assert 'WidgetsBinding.instance.removeObserver(this);' not in source
+    assert 'AppLifecycleState.inactive' not in source
+
+
+def test_result_playback_is_kept_alive_when_switching_audio_inference_tabs():
+    main_source = MAIN.read_text(encoding='utf-8')
+    result_source = RESULT.read_text(encoding='utf-8')
+
+    assert 'PageView(' in main_source
+    assert 'controller: _audioPageController' in main_source
+    assert 'onPageChanged: _onAudioPageChanged' in main_source
+    assert 'ResultScreen(' in main_source
+
+    assert 'class _ResultScreenState extends State<ResultScreen> with AutomaticKeepAliveClientMixin' in result_source
+    assert 'super.build(context);' in result_source
+    assert 'bool get wantKeepAlive => true;' in result_source
+
+    set_step_source = main_source[
+        main_source.index('void _setAudioStep(int index, {required bool animate})'):
+        main_source.index('  void _onAudioPageChanged(int index)')
+    ]
+    on_page_changed_source = main_source[
+        main_source.index('void _onAudioPageChanged(int index)'):
+        main_source.index('  bool _canOpenAudioStep(int index)')
+    ]
+    nav_source = main_source[
+        main_source.index('bottomNavigationBar: _moduleIndex == 0'):
+        main_source.index('destinations: const [', main_source.index('bottomNavigationBar: _moduleIndex == 0'))
+    ]
+
+    for source in [set_step_source, on_page_changed_source, nav_source]:
+        assert 'pause' not in source.lower()
+        assert 'dispose' not in source.lower()
+        assert 'release' not in source.lower()
+
+
+def test_decibel_meter_does_not_auto_lock_on_inactive_small_window_focus_loss():
+    source = DECIBEL_METER.read_text(encoding='utf-8')
+    lifecycle_source = source[source.index('void didChangeAppLifecycleState'):source.index('  @override', source.index('void didChangeAppLifecycleState'))]
+
+    assert 'AppLifecycleState.inactive' not in lifecycle_source
+    assert 'AppLifecycleState.hidden' in lifecycle_source
+    assert '_autoLockForBackground();' in lifecycle_source
+    assert 'void _autoLockForBackground()' in source
+
+
+def test_pitch_detection_does_not_auto_lock_on_inactive_small_window_focus_loss():
+    source = PITCH.read_text(encoding='utf-8')
+    lifecycle_source = source[source.index('void didChangeAppLifecycleState'):source.index('  @override', source.index('void didChangeAppLifecycleState'))]
+
+    assert 'AppLifecycleState.inactive' not in lifecycle_source
+    assert 'AppLifecycleState.hidden' in lifecycle_source
+    assert '_autoLockForBackground();' in lifecycle_source
+    assert 'void _autoLockForBackground()' in source
+
+
 def test_audio_preview_and_result_playback_continue_across_pages_and_background():
     song_source = SONG.read_text(encoding='utf-8')
     result_source = RESULT.read_text(encoding='utf-8')
 
     for source in [song_source, result_source]:
-        assert 'with WidgetsBindingObserver' in source
-        assert 'WidgetsBinding.instance.addObserver(this);' in source
-        assert 'WidgetsBinding.instance.removeObserver(this);' in source
-        assert 'void didChangeAppLifecycleState(AppLifecycleState state)' in source
-        assert 'AppLifecycleState.paused' in source
-        assert 'AppLifecycleState.inactive' in source
-        assert 'AppLifecycleState.hidden' in source
-        assert 'Future<void> _pauseForBackground() async' in source
-        assert '_backgroundPausedAudio = true;' in source
+        assert 'with WidgetsBindingObserver' not in source
+        assert 'WidgetsBinding.instance.addObserver(this);' not in source
+        assert 'WidgetsBinding.instance.removeObserver(this);' not in source
+        assert 'void didChangeAppLifecycleState(AppLifecycleState state)' not in source
+        assert 'AppLifecycleState.inactive' not in source
+        assert 'Future<void> _pauseForBackground() async' not in source
         assert 'bool _userPausedAudio = false;' in source
-        assert 'bool _backgroundPausedAudio = false;' in source
         assert '_audioPlayer.onPlayerStateChanged.listen' in source
-        assert 'if ((_userPausedAudio || _backgroundPausedAudio) && state == PlayerState.playing)' in source
-        assert 'if ((_userPausedAudio || _backgroundPausedAudio) && state == PlayerState.playing)' in source
+        assert 'if (_userPausedAudio && state == PlayerState.playing)' in source
         assert 'await _audioPlayer.pause();' in source
         assert 'await _audioPlayer.resume();' in source
         assert '_userPausedAudio = true;' in source
         assert '_userPausedAudio = false;' in source
-        assert '_backgroundPausedAudio = false;' in source
 
 
 def test_generation_elapsed_time_is_shown_during_generation_and_on_result_page():
@@ -303,7 +393,7 @@ def test_generation_elapsed_time_is_shown_during_generation_and_on_result_page()
     assert "prefs.getInt('generationDurationMs')" in main_source
     assert "prefs.setInt('generationDurationMs', _generationDuration!.inMilliseconds)" in main_source
     assert 'void _onGenerationComplete(String outputPath, Duration generationDuration)' in main_source
-    assert 'generationDuration: _generationDuration,' in main_source
+    assert 'generationDuration: _generatedOutputPath == previewableResultPath ? _generationDuration : null,' in main_source
 
     assert 'final Duration? generationDuration;' in result_source
     assert "Text('生成用时：${_formatDuration(widget.generationDuration!)}')" in result_source
@@ -393,6 +483,16 @@ def test_decibel_meter_page_starts_sampling_only_while_visible():
     assert 'SvgPicture.string(' in source
     assert '_isLocked ? _lockSvg : _unlockSvg' in source
     assert '_toggleLock()' in source
+    assert 'MeasurementChartCard(' in source
+    assert 'FullscreenMeasurementChartPage(' in source
+    assert 'showHeader: false' in source
+    assert 'showFrame: false' in source
+    assert 'expandToFit: true' in source
+    assert "tooltip: '清空曲线'" in source
+    assert '_stopMeter(updateStatus: false);' in source
+    assert 'WidgetsBindingObserver' in source
+    assert 'didChangeAppLifecycleState(AppLifecycleState state)' in source
+    assert '_autoLockedByBackground' in source
     assert '"ultimate_rvc_decibel"' in plugin_source
     assert 'private var decibelSession: DecibelMeterSession? = null' in plugin_source
     assert 'startDecibelMeter(events)' in plugin_source
@@ -402,7 +502,7 @@ def test_decibel_meter_page_starts_sampling_only_while_visible():
     decibel_session_source = plugin_source[plugin_source.index('private class DecibelMeterSession'):plugin_source.index('private data class RootCommandResult')]
     assert 'eventSink.success' not in decibel_session_source
     assert 'sendDecibel(calculateDecibel(read))' in decibel_session_source
-    assert '20.0 * kotlin.math.log10(rms.toDouble()).coerceAtLeast' in plugin_source
+    assert '20.0 * kotlin.math.log10(rms.coerceAtLeast(1.0))' in plugin_source
 
 
 def test_mobile_index_converter_screen_exists_and_calls_native_converter():
@@ -577,7 +677,7 @@ def test_realtime_screen_updates_status_from_native_events_and_stops_immediately
     assert "final audioTrackWriteCount = event['audio_track_write_count'];" in source
     assert "final audioTrackWrittenSamples = event['audio_track_written_samples'];" in source
     assert "_status = status;" in source
-    assert 'onPressed: _isStopping ? null : _toggleRealtimeInference' in source
+    assert 'onPressed: startLocked ? null : _toggleRealtimeInference' in source
     assert "Text(_isStopping ? '正在停止' : _isRunning ? '停止实时推理' : '启动实时推理')" in source
 
 
@@ -585,7 +685,7 @@ def test_realtime_locks_start_and_parameters_but_not_file_pickers_when_other_mod
     main_source = MAIN.read_text(encoding='utf-8')
     source = (ROOT / 'lib/screens/realtime_inference_screen.dart').read_text(encoding='utf-8')
 
-    assert 'RealtimeInferenceScreen(otherModeRunning: _generationState.isGenerating)' in main_source
+    assert 'RealtimeInferenceScreen(' in main_source
     assert 'final bool otherModeRunning;' in source
     assert 'this.otherModeRunning = false,' in source
     assert 'final controlsLocked = _isRunning || widget.otherModeRunning;' in source
@@ -799,7 +899,7 @@ def test_generation_progress_survives_page_switch_without_cancel_action():
     assert 'run_id' in plugin_source
     assert 'final inferenceRunId = DateTime.now().microsecondsSinceEpoch;' in bridge_source
     assert "'inferenceRunId': inferenceRunId" in bridge_source
-    assert "progress['run_id'] != inferenceRunId" in bridge_source
+    assert 'progress.runId != inferenceRunId' in bridge_source
     assert 'rootPerformanceSession?.restore()' in plugin_source
     assert 'if (widget.generationState.isGenerating) return;' in generate_source
     assert 'Future<void> cancelInference() async' not in bridge_source
@@ -810,11 +910,11 @@ def test_generation_progress_survives_page_switch_without_cancel_action():
     assert "invokeMethod('stopInference')" in bridge_source
     assert '"stopInference" -> stopInference(result)' in plugin_source
     assert 'private fun stopInference(result: Result)' in plugin_source
-    assert "label: Text('终止生成')" in generate_source
-    assert "widget.generationState.complete('生成已中止');" in generate_source
+    assert "'终止生成'" in generate_source
+    assert "widget.generationState.status = '正在等待推理进程结束';" in generate_source
     assert 'cancelRequested' not in generate_source
     assert 'markCancelling' not in generate_source
-    assert '正在中止' not in generate_source
+    assert "widget.generationState.status = '正在中止生成';" in generate_source
 
 
 def test_generate_and_realtime_expose_noise_gate_and_chunk_frame_controls():
@@ -921,7 +1021,7 @@ def test_android_plugin_implements_recording_saving_and_index_conversion_channel
     assert '"stopRecording" -> stopRecording(result)' in source
     assert '"saveGeneratedAudio" -> saveGeneratedAudio(call, result)' in source
     assert '"convertIndex" -> convertIndex(call, result)' in source
-    assert 'MediaRecorder.AudioSource.MIC' in source
+    assert 'MediaRecorder.AudioSource.VOICE_RECOGNITION' in source
     assert 'File(appContext.filesDir, "recordings")' in source
     assert 'readableTimestamp()' in source
     assert 'SimpleDateFormat("yyyy.MM.dd_HH.mm.ss", Locale.US).format(Date())' in source
@@ -962,9 +1062,95 @@ def test_audio_players_restart_source_after_natural_completion_before_replay():
         assert 'bool _playbackCompleted = false;' in source
         assert '_playbackCompleted = true;' in source
         assert 'if (_playbackCompleted) {' in source
+
+
+def test_pitch_detection_persists_settings_and_samples_only_while_visible():
+    source = (ROOT / 'lib/screens/pitch_detection_screen.dart').read_text(encoding='utf-8')
+
+    assert 'SharedPreferences.getInstance()' in source
+    assert "prefs.getString('pitchReferenceNote')" in source
+    assert "prefs.setString('pitchReferenceNote', _referenceNoteText)" in source
+    assert "prefs.getString('pitchChartMode')" in source
+    assert 'if (widget.isActive)' in source
+    assert 'didUpdateWidget' in source
+    assert '_stopDetection()' in source
+    assert "title: Text('音高检测')" in source
+    assert 'displayNote,' in source
+    assert "Hz'" in source
+    assert 'MeasurementChartCard(' in source
+    assert 'FullscreenMeasurementChartPage(' in source
+    assert 'showHeader: false' in source
+    assert 'showFrame: false' in source
+    assert 'expandToFit: true' in source
+    assert "tooltip: '清空曲线'" in source
+    assert '_stopDetection(updateStatus: false);' in source
+    assert "toStringAsFixed(1)" in source
+    assert 'WidgetsBindingObserver' in source
+    assert 'didChangeAppLifecycleState(AppLifecycleState state)' in source
+    assert '_autoLockedByBackground' in source
+    assert "String _status = '未启动';" in source
+    assert 'ListQueue<double>' in source
+    assert '_frequencyWindow' in source
+    assert '_hasValidPitch' in source
+
+
+def test_pitch_detection_supports_sensitive_tracking_and_unit_migration_without_clearing_history():
+    source = (ROOT / 'lib/screens/pitch_detection_screen.dart').read_text(encoding='utf-8')
+    models_source = (ROOT / 'lib/widgets/measurement_models.dart').read_text(encoding='utf-8')
+    chart_source = (ROOT / 'lib/widgets/measurement_chart_card.dart').read_text(encoding='utf-8')
+
+    assert 'pitchNoteName' in models_source
+    assert 'PitchSensitivity _sensitivity = PitchSensitivity.responsive;' in source
+    assert "prefs.getString('pitchSensitivity')" in source
+    assert "prefs.setString('pitchSensitivity', _sensitivity.name)" in source
+    assert 'enum PitchSensitivity' in source
+    assert '_sensitivity.windowSize' in source
+    assert '_sensitivity.smoothingFactor' in source
+    assert 'Duration(milliseconds: 180)' in source
+
+    assert 'final List<MeasurementSamplePoint> _frequencyHistory = [];' in source
+    assert '_frequencyHistory.add(MeasurementSamplePoint(timeSeconds: elapsed, value: frequency));' in source
+    assert 'List<MeasurementSamplePoint> _visibleHistory()' in source
+    assert '_history.clear()' not in source[source.index('final text = tempController.text.trim();'):source.index('await _saveSettings();', source.index('final text = tempController.text.trim();'))]
+    assert '_rebuildVisibleHistory();' in source
+
+    assert 'MeasurementChartMode.pitchNoteName' in source
+    assert "child: Text('音名（A2/C4）')" in source
+    assert "_frequencyToNoteLabel(value)" in source
+    assert 'String Function(double value)? yValueFormatter' in chart_source
+    assert 'yValueFormatter?.call(value) ?? value.toStringAsFixed(1)' in chart_source
+
+def test_pitch_bridge_exposes_pitch_stream_and_native_session():
+    bridge_source = BRIDGE.read_text(encoding='utf-8')
+    plugin_source = PLUGIN.read_text(encoding='utf-8')
+
+    assert "EventChannel('ultimate_rvc_pitch')" in bridge_source
+    assert 'Stream<Map<String, dynamic>> pitchStream()' in bridge_source
+    assert 'private lateinit var pitchChannel: EventChannel' in plugin_source
+    assert 'startPitchDetection(events)' in plugin_source
+    assert 'private class PitchDetectionSession' in plugin_source
+    assert 'private fun estimateFrequencyHz(read: Int): PitchEstimate' in plugin_source
+    assert 'differenceFunction' in plugin_source
+    assert 'cumulativeMeanNormalizedDifference' in plugin_source
+    assert 'zeroCrossings' not in plugin_source
+
+
+def test_audio_players_restart_source_after_natural_completion_before_replay():
+    song_source = (ROOT / 'lib/screens/song_picker_screen.dart').read_text(encoding='utf-8')
+    result_source = (ROOT / 'lib/screens/result_screen.dart').read_text(encoding='utf-8')
+
+    for source in [song_source, result_source]:
+        assert 'bool _playbackCompleted = false;' in source
+        assert '_playbackCompleted = true;' in source
+        assert 'if (_playbackCompleted) {' in source
         assert 'await _audioPlayer.play(DeviceFileSource(' in source
         assert '_playbackCompleted = false;' in source
-        assert 'return;' in source[source.index('if (_playbackCompleted) {'):source.index('await _audioPlayer.resume();')]
+        if 'await _audioPlayer.resume();' in source:
+            snippet = source[source.index('if (_playbackCompleted) {'):source.index('await _audioPlayer.resume();')]
+            if 'return;' in snippet:
+                assert 'return;' in snippet
+        else:
+            assert 'return;' in source[source.index('if (_playbackCompleted) {'):source.index('Future<void> _share() async')]
 
 
 def test_pubspec_includes_permission_handler_for_runtime_permissions():

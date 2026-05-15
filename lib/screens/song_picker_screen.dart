@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/rvc_bridge.dart';
 
@@ -24,12 +25,14 @@ class SongPickerScreen extends StatefulWidget {
   State<SongPickerScreen> createState() => _SongPickerScreenState();
 }
 
-class _SongPickerScreenState extends State<SongPickerScreen> with WidgetsBindingObserver, AutomaticKeepAliveClientMixin {
+class _SongPickerScreenState extends State<SongPickerScreen> with AutomaticKeepAliveClientMixin {
   final AudioPlayer _audioPlayer = AudioPlayer();
   final RVCBridge _rvcBridge = RVCBridge();
+  static const String _previewPositionPrefix = 'audioPreviewPositionMs:';
   bool _isRecording = false;
   final Stopwatch _recordingStopwatch = Stopwatch();
   Timer? _recordingTimer;
+  Timer? _positionPersistTimer;
   Duration _recordingElapsed = Duration.zero;
   bool _isPlaying = false;
   bool _userPausedAudio = false;
@@ -41,9 +44,9 @@ class _SongPickerScreenState extends State<SongPickerScreen> with WidgetsBinding
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     _audioPlayer.onPositionChanged.listen((position) {
       if (mounted) setState(() => _position = position);
+      _schedulePersistPlaybackPosition();
     });
     _audioPlayer.onDurationChanged.listen((duration) {
       if (mounted) setState(() => _duration = duration);
@@ -57,6 +60,7 @@ class _SongPickerScreenState extends State<SongPickerScreen> with WidgetsBinding
       if (mounted) setState(() => _isPlaying = state == PlayerState.playing);
     });
     _audioPlayer.onPlayerComplete.listen((_) {
+      final completedPath = widget.selectedSongPath;
       if (mounted) {
         setState(() {
           _isPlaying = false;
@@ -65,6 +69,9 @@ class _SongPickerScreenState extends State<SongPickerScreen> with WidgetsBinding
           _position = Duration.zero;
         });
       }
+      if (completedPath != null) {
+        _clearPlaybackPosition(completedPath);
+      }
       _audioPlayer.seek(Duration.zero);
     });
     _loadSelectedAudioDuration();
@@ -72,8 +79,9 @@ class _SongPickerScreenState extends State<SongPickerScreen> with WidgetsBinding
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
     _recordingTimer?.cancel();
+    _positionPersistTimer?.cancel();
+    _persistPlaybackPosition();
     _audioPlayer.dispose();
     super.dispose();
   }
@@ -106,6 +114,42 @@ class _SongPickerScreenState extends State<SongPickerScreen> with WidgetsBinding
     _recordingElapsed = Duration.zero;
   }
 
+  String _previewPositionKey(String path) => '$_previewPositionPrefix$path';
+
+  void _schedulePersistPlaybackPosition() {
+    _positionPersistTimer?.cancel();
+    _positionPersistTimer = Timer(const Duration(seconds: 1), () {
+      _persistPlaybackPosition();
+    });
+  }
+
+  Future<void> _persistPlaybackPosition() async {
+    final path = widget.selectedSongPath;
+    if (path == null || _playbackCompleted) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_previewPositionKey(path), _position.inMilliseconds);
+  }
+
+  Future<void> _restorePlaybackPosition(String path) async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedMs = prefs.getInt(_previewPositionKey(path)) ?? 0;
+    if (savedMs <= 0) return;
+    final restored = Duration(milliseconds: savedMs);
+    if (_duration > Duration.zero && restored >= _duration) {
+      await prefs.remove(_previewPositionKey(path));
+      return;
+    }
+    await _audioPlayer.seek(restored);
+    if (mounted) {
+      setState(() => _position = restored);
+    }
+  }
+
+  Future<void> _clearPlaybackPosition(String path) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_previewPositionKey(path));
+  }
+
   @override
   void didUpdateWidget(SongPickerScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -132,7 +176,7 @@ class _SongPickerScreenState extends State<SongPickerScreen> with WidgetsBinding
       nativeDuration = null;
     }
     await _audioPlayer.stop();
-    await _audioPlayer.setSource(DeviceFileSource(path));
+    await _audioPlayer.setSource(DeviceFileSource(widget.selectedSongPath!));
     _preparedSourcePath = path;
     Duration? duration;
     for (final delay in const [Duration.zero, Duration(milliseconds: 120), Duration(milliseconds: 260)]) {
@@ -148,6 +192,7 @@ class _SongPickerScreenState extends State<SongPickerScreen> with WidgetsBinding
       setState(() => _duration = (nativeDuration != null && nativeDuration > Duration.zero)
           ? nativeDuration
           : (duration ?? Duration.zero));
+      await _restorePlaybackPosition(path);
     }
   }
 
@@ -215,7 +260,15 @@ class _SongPickerScreenState extends State<SongPickerScreen> with WidgetsBinding
         return;
       }
       _userPausedAudio = false;
-      if (_playbackCompleted || _preparedSourcePath != selectedPath || _position == Duration.zero) {
+      if (_playbackCompleted) {
+        await _audioPlayer.stop();
+        await _audioPlayer.setSource(DeviceFileSource(selectedPath));
+        _preparedSourcePath = selectedPath;
+        await _audioPlayer.play(DeviceFileSource(selectedPath));
+        _playbackCompleted = false;
+        return;
+      }
+      if (_preparedSourcePath != selectedPath || _position == Duration.zero) {
         await _audioPlayer.stop();
         await _audioPlayer.setSource(DeviceFileSource(selectedPath));
         _preparedSourcePath = selectedPath;
@@ -230,6 +283,7 @@ class _SongPickerScreenState extends State<SongPickerScreen> with WidgetsBinding
   Future<void> _seek(double milliseconds) async {
     _playbackCompleted = false;
     await _audioPlayer.seek(Duration(milliseconds: milliseconds.round()));
+    await _persistPlaybackPosition();
   }
 
   String _formatDuration(Duration duration) {

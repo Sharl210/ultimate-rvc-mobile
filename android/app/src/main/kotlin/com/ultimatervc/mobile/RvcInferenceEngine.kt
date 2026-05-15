@@ -143,12 +143,12 @@ class RvcInferenceEngine(
         }
         finalOutputDir.mkdirs()
         if (audioPlan.requiresSegmentation) {
-            val outputPath = File(finalOutputDir, songFile.nameWithoutExtension + ".rvc.wav")
+            val outputPath = File(finalOutputDir, rvcOutputFileName(songFile, voiceModelFile))
             return inferSegmented(request, songFile, voiceModelFile, hubertModel, rmvpeModel, audioPlan, outputPath)
         }
 
         val gatedMono16k = prepareOfflineInput16k(songFile, request)
-        val outputPath = File(finalOutputDir, songFile.nameWithoutExtension + ".rvc.wav")
+        val outputPath = File(finalOutputDir, rvcOutputFileName(songFile, voiceModelFile))
 
         OrtEnvironment.getEnvironment().use { environment ->
             request.onProgress(2.0, "准备 CPU 推理")
@@ -204,6 +204,12 @@ class RvcInferenceEngine(
         }
 
         return outputPath.absolutePath
+    }
+
+    private fun rvcOutputFileName(input: File, model: File): String {
+        val inputBase = input.nameWithoutExtension.ifBlank { "input" }
+        val modelBase = model.nameWithoutExtension.ifBlank { "model" }
+        return "${inputBase}_[${modelBase}].rvc.wav"
     }
 
     fun getResumableMetadata(request: RvcInferenceRequest): ResumableInferenceMetadata? {

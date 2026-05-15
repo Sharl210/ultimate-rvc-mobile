@@ -71,7 +71,10 @@ class RVCInference:
         # Voice conversion logic here
         
         # Save output
-        output_path = str(Path(audio_path).with_suffix('.rvc.wav'))
+        input_path = Path(audio_path)
+        input_base = input_path.stem or 'input'
+        model_base = Path(model_path).stem or 'model'
+        output_path = str(input_path.with_name(f'{input_base}_[{model_base}].rvc.wav'))
         sf.write(output_path, audio, sr)
         
         return output_path
